@@ -22,11 +22,14 @@ setup(
         "numpy",
         "h5py",
         "argparse",
-        "tqdm"
+        "tqdm",
+        "vtk"
     ],
     entry_points={  # Command-line tools
         "console_scripts": [
-            "archive_source=soruce_seal.package_utils:package_source_tree",  # Replace with your actual utility
+            "archive_source=scripts.archive_source:main",
+            "unpack_archive=scripts.unpack_archive:main",  
+            "create_descriptor=scripts.create_descriptor:main"
         ],
     },
 )

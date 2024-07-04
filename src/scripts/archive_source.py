@@ -2,8 +2,7 @@
 import argparse
 import source_seal.package_utils as sseal
 
-
-if __name__ == "__main__":
+def main():
     parser = argparse.ArgumentParser(description='Seal source tree into HDF5 archive with exclusion patterns.')
     parser.add_argument('source_dir', type=str, help='Path to the source directory to package')
     parser.add_argument('output_file', type=str, help='Path to the output HDF5 file')
@@ -19,3 +18,6 @@ if __name__ == "__main__":
     print(f"Sealing source tree {args.source_dir}, into archive {args.output_file}, with exclusions: {', '.join(exclude_patterns)}...")
     sseal.seal_source_tree(args.source_dir, args.output_file, exclude_patterns)
     print(f"Source tree sealed into {args.output_file} with exclusions: {', '.join(exclude_patterns)}.")
+
+if __name__ == "__main__":
+    main()

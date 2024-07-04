@@ -1,2 +1,5 @@
 *.pyc
 *egg-info
+__pycache__
+doc/html
+doc/latex
