@@ -36,7 +36,7 @@ GRACEpy comes with several packages to aid visualization of grace data in Python
 The `grace_tools` package defines the `grace_xmf_reader` class makes it easy to read and analyze multi-dimensional data from grace in Python. First, you will need a descriptor (if you don't know what it is, go back to the previous section). To read it in Python you can do the following:
 ```python
 import grace_tools.vtk_reader_utils as gtv
-reader = gtv.grace_xfm_reader("descriptor.xfm")
+reader = gtv.grace_xmf_reader("descriptor.xmf")
 ```
 This loads the metadata in Python, and is a lightweight operation to perform even for very large datasets. The reader itself is a complicated object, but its extensive interface makes it easy to handle. Firstly, you can query the available output times and variables with
 ```python
@@ -159,7 +159,7 @@ vertices = reader.get_quadrant_vertices(time=1.,ncells=16)
 fig, ax = plt.subplots()
 
 for i in range(vertices.shape[0]):
-    polygon = plt.Polygon(vertices[i,:,:-1], edge_color="black", linewidth=0.3, facecolor="None")
+    polygon = plt.Polygon(vertices[i,:,:-1], edgecolor="black", linewidth=0.3, facecolor="None")
     ax.add_patch(polygon)
 ```
 Both arguments are optional. As always, `time` is optional and if omitted defaults to the current timeslice of the reader.
