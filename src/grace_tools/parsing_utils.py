@@ -228,4 +228,5 @@ def parse_profiling_file(fname):
     
     return grace_gpu_profiling_data(name,result)
 
-def is_file_binary()
+def is_file_binary():
+    pass

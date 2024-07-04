@@ -20,7 +20,6 @@ Here, `<input_directory>` is the path to a directory containing grace hdf5 outpu
 create_descriptor --help
 ```
 Will print a message with more details on how to use this command-line utility. Note that generating descriptors only reads light metadata, and will therefore be a very light task even for large datasets.
-**NB** Make sure not to move the descriptor file once created since it generally contains relative paths pointing to the hdf5 files.
 
 Once a descriptor file is created, you can analyze the data with a plethora of standard tools.
 Below is a list of supported visualization and analysis tools supported by grace.

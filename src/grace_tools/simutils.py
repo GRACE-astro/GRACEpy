@@ -1,6 +1,5 @@
 """This module contains utilities to handle simulations performed by grace."""
 
-import vtk 
 import numpy as np
 import glob 
 import re 
@@ -61,6 +60,7 @@ class grace_simulation:
         self.descdir = os.path.join(self.bdir,"descriptors")
         if not os.path.isdir(ppdir):
             os.mkdir(self.bdir)
+        if not os.path.isdir(os.path.join(self.bdir,"descriptors")):
             os.mkdir(os.path.join(self.bdir,"descriptors"))
         gtx.write_xmf_file(os.path.join(self.descdir,"volume_descriptor.xmf"),
                            self.volume_out_dir)
@@ -72,15 +72,21 @@ class grace_simulation:
         patt = os.path.join(self.simdir,"*.yaml")
         flist = glob.glob(patt)
         if len(flist) == 0:
-            raise ValueError("No parfile specified and the simulation directory"
-                             f" {self.simdir} does not contain one.")
+            print("WARNING: No parfile specified and the simulation directory"
+                  f" {self.simdir} does not contain one, all paths set to default values.")
+            return None 
         if len(flist) > 1: 
-            raise ValueError("No parfile specified and the simulation directory"
-                             f" contains more than one yaml file, please provide"
-                             " the correct one explicitly to the constructor.")
+            print("WARNING: No parfile specified and the simulation directory"
+                  f" contains more than one yaml file, all paths set to default values.")
+            return None
         return flist[0]
     
     def __parse_parfile(self,parfile):
+        if parfile is None:
+            self.volume_out_dir = os.path.join(self.simdir,"output_volume")
+            self.scalar_out_dir = os.path.join(self.simdir,"output_scalar")
+            self.name = "grace"
+            return
         with open(parfile,'r') as f:
             config = yaml.safe_load(f)
         # Find output directories in parameter file 

@@ -71,7 +71,7 @@ def extract_iteration(filename):
 
 def write_xmf_file(outfile, bdir="./",iterations=None):
     flist = []
-    
+    outfile = os.path.abspath(outfile)
     if iterations is None:
         flist = glob.glob(bdir+"/*.h5")
     elif type(iterations) is list:
@@ -82,6 +82,7 @@ def write_xmf_file(outfile, bdir="./",iterations=None):
     sorted_file_list = sorted(flist, key=extract_iteration)
     grids = [] 
     for ff in sorted_file_list:
+        ff = os.path.abspath(ff)
         vnames,vtypes,cell_dims,points_dims,var_dims,time,iteration,topology = collect_hdf5_attributes(ff)
         attrs = []
         for i,vname in enumerate(vnames):
