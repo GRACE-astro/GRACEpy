@@ -30,7 +30,7 @@ class grace_xmf_reader:
         available_times():
             Get the times where data is available.
         
-        available_vars(varname, vartype):
+        available_variables(varname, vartype):
             Get the available variables of a specific type (either "cell" or "point").
         
         get_var(varname, time, override_no_timestep_selection, convert_to_numpy, vartype):
@@ -65,12 +65,11 @@ class grace_xmf_reader:
         self.__query_data_dimensions()
         
     def __check_vtype(self,vtype):
-        if vtype == "Cell" or vtype == "cell":
+        if  vtype == "cell" or vtype == "point":
             return 
-        elif vtype == "Point" or vtype == "point":
-            return
         else:
             raise ValueError(f"Unrecognized variable type {vtype}. Supported types are 'cell' or 'point'.")
+    
     def __check_requested_var(self,varname,vtype):
         if vtype == "cell":
             if not (varname in self.available_cell_vars_list):
@@ -178,7 +177,7 @@ class grace_xmf_reader:
         """Get available output times."""
         return self.available_times_list  
     
-    def available_vars(self, vtype="cell"):
+    def available_variables(self, vtype="cell"):
         """Get available variables in output.
 
         Args:
