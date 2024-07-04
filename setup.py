@@ -23,7 +23,8 @@ setup(
         "h5py",
         "argparse",
         "tqdm",
-        "vtk"
+        "vtk",
+        "pyparsing"
     ],
     entry_points={  # Command-line tools
         "console_scripts": [
