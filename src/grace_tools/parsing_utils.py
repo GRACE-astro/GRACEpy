@@ -4,132 +4,9 @@ import os
 import re 
 import glob 
 import numpy as np
-from pyparsing import Word, alphas, alphanums, nums, Suppress, Combine, Optional, Group, OneOrMore, Regex, ZeroOrMore, ParseException, one_of
+import subprocess
+from pyparsing import Word, alphas, alphanums, nums, Suppress, Combine, Optional, Group, OneOrMore, Regex, ZeroOrMore, ParseException, one_of, restOfLine, LineEnd
 
-
-class grace_gpu_profiling_data:
-    """Container for gpu low-level profiling data from grace.
-    
-    This contains one entry per profiling region. The entries are 
-    stored in a list that can be accessed via normal indexing on
-    the grace_gpu_profiling_data object. Since kernel names are 
-    usually long and complicated they are stored separately. Each 
-    entry in the list is a grace_gpu_profiling_entry_hip/cuda.
-    
-    Attributes:
-        name:
-            Name of the profiling region this data comes from.
-    Methods:
-        __getitem__(index):
-            Get the data entry corresponding to the given index.
-        __len__():
-            Get the number of entries
-        kernel_name(index):
-            Get the kernel name corresponding to the entry at a given index.
-    """
-    
-    def __init__(self,name,prof_results):
-        """Create a grace_gpu_profiling_data instance.
-
-        Args:
-            name (str): 
-                Name of the profiling region.
-            prof_results (list): 
-                List containing the profiling results.
-        """
-        self.__data = list()
-        self.__kernel_names = list()
-        self.name = name 
-        self.__parse_profiling_data(prof_results)
-    
-    def __parse_profiling_data(self, prof_data):
-        tmp_data = list()
-        names = list() 
-        for entry in prof_data:
-            names.append(entry.kernel_name)
-            tmp_data.append(grace_gpu_profiling_entry_hip(entry))
-        names = np.unique(np.array(names))
-        self.__kernel_names = names.tolist() 
-        for name in names:
-            tmplist = list() 
-            for d in tmp_data:
-                if d.kernel_name == name:
-                    tmplist.append(d)
-            self.__data.append(tmplist)
-            
-    def __getitem__(self,index: int):
-        """Get a profiling entry at the provided index.
-        
-        Args:
-            index (int):
-                Index of requested entry.
-        Returns:
-            list of grace_gpu_profiling_entry_hip/cuda:
-                The data entries pertaining to a specific kernel.
-        """
-        return self.__data[index]
-    
-    def __len__(self):
-        """Get number of distinct kernels sampled in this session."""
-        return len(self.__data)
-
-    def kernel_name(self,index: int):
-        """Get kernel name of entry at index."""
-        return self.__kernel_names[index]
-        
-            
-class grace_gpu_profiling_entry_hip:    
-    """Profling entry representing one kernel in one GPU profiling session.
-    
-        Attribues:
-            kernel_name (str):
-                The name of the kernel being sampled.
-            rank (int):
-                The MPI rank collecting this output.
-            dispatch (int):
-                Number of this kernel dispatch.
-            gpu_id (int):
-                Unique GPU agent identifier.
-            queue_id (int):
-                Unique dispatch queue identifier.
-            queue_index (int):
-                Index in dispatch queue.
-            tid (int):  
-                Thread ID of the Host thread initiating the dispatch.
-            kernel_properties (dict):
-                Properties of the kernel:
-                    grd: Grid size.
-                    wgr: Workgroup size.
-                    lds: Local data store size (per group).
-                    scr: Scratch memory (per kernel).
-                    arch_vgpr: Number of vector registers used.
-                    accum_vgpr: Number of accumulated vector register used.
-                    sgpr: Number of scalar registers used.
-                    wave_size: Number of threads per wavefront.
-                    sig: Signature of the kernel.
-                    obj: Internal object identifier.
-            timestamps (dict):
-                Timestamps in nanoseconds:
-                    time-begin: Time at which kernel execution began.
-                    time-end  : Time at which kernel execution ended.
-                    duration  : Duration of kernel execution in nanoseconds.
-            counters (dict):
-                Requested hardware counters. Dictionary contains counter_name: counter_value.
-    """
-    
-    def __init__(self,entry):
-        """Initialize a grace_gpu_profiling_entry_hip from a parsed profiling entry."""
-        self.kernel_name = entry.kernel_name
-        self.rank        = entry.rank 
-        self.dispatch    = entry.dispatch 
-        self.gpu_id      = entry.gpu_id 
-        self.queue_id    = entry.queue_id 
-        self.queue_index = entry.queue_index 
-        self.tid         = entry.tid 
-        self.kernel_properties = {prop[0]: prop[1] for prop in entry.kernel_properties}
-        self.timestamps  = {ts[0]: ts[1] for ts in entry.timestamps}
-        self.counters    = {cnt[0]: cnt[1] for cnt in entry.counters}
-        
         
 def parse_profiling_file_body(body):
     """Parse the body of a gpu profiling output file.
@@ -153,9 +30,9 @@ def parse_profiling_file_body(body):
     number.setParseAction(lambda t: float(t[0]) if '.' in t[0] else int(t[0]))
         
     # Kernel info 
+    iteration = Group(Suppress("iteration(") + number("iter") +  Suppress(r')')+Optional(Suppress(",")))
     kernel_name_data = Regex(r'".*?"')
     kernel_name = Group(Suppress(r'kernel-name(') + kernel_name_data + Suppress(r')')+Optional(Suppress(",")))
-    rank = Group(Suppress("Rank[") + number + Suppress("],"))
     dispatch = Group(Suppress("dispatch[") + number + Suppress("],"))
     gpu_id = Group(Suppress("gpu_id(") + number + Suppress("),"))
     queue_id = Group(Suppress("queue_id(") + number + Suppress("),"))
@@ -168,7 +45,7 @@ def parse_profiling_file_body(body):
     kernel_property = Group(identifier + Suppress('(') + number + Suppress(')') + Optional(Suppress(",")))
 
     # Timestamps
-    timestamps_start = Suppress("Timestamps:")
+    timestamps_start = Suppress("Timestamps (in nanoseconds):")
     timestamp = Group(identifier + Suppress('(') + number + Suppress(')') + Optional(Suppress(",")))
 
     # Counters
@@ -177,8 +54,8 @@ def parse_profiling_file_body(body):
 
     # Single entry grammar
     entry = Group(
+        iteration("iteration") + 
         kernel_name("kernel_name") +
-        rank("rank") +
         dispatch("dispatch") +
         gpu_id("gpu_id") +
         queue_id("queue_id") +
@@ -196,12 +73,12 @@ def parse_profiling_file_body(body):
     profiling_output = OneOrMore(entry)
     # Parsing the data
     try:
-        result = profiling_output.parseString(data)
+        result = profiling_output.parseString(body)
     except ParseException as pe:
         raise ValueError(f"Parsing error {pe}")
     return result 
 
-def parse_profiling_file(fname):
+def parse_profiling_file(fpath):
     """Parse a gpu profiling output file.
 
     Args:
@@ -218,15 +95,120 @@ def parse_profiling_file(fname):
             parsed results contained in the file.
     """
     expr = re.compile("([\S]+)_gpu_counters_([\d]+).dat")
+    _,fname = os.path.split(fpath)
     rexpr = expr.match(fname)
-    name = rexpr.groups()[0]    
+    name = rexpr.groups()[0] 
+    rank = rexpr.groups()[1]  
     try:
-        with open(fname,'r') as f:
+        with open(fpath,'r') as f:
             result = parse_profiling_file_body(f.read())
     except:
-        raise ValueError(f"Can't read from file {fname}")
+        raise ValueError(f"Can't read from file {fpath}")
     
-    return grace_gpu_profiling_data(name,result)
+    return (name,rank,result)
 
-def is_file_binary():
-    pass
+def is_file_binary(filepath):
+    """
+    Check if a file is binary.
+
+    Args:
+        filepath (str): 
+            The path to the file to check.
+
+    Returns:
+        bool: 
+            True if the file is binary, False otherwise.
+    """
+    try:
+        with open(filepath, 'rb') as file:
+            chunk = file.read(1024)
+            if b'\0' in chunk:  # Null byte is a good indicator of binary file
+                return True
+            text_characters = bytearray({7, 8, 9, 10, 12, 13, 27} | set(range(0x20, 0x100)))
+            return not all(byte in text_characters for byte in chunk)
+    except Exception as e:
+        print(f"Error checking if file is binary: {e}")
+        return False
+    
+def execute_kp_reader(filepath):
+    """
+    Execute kp_reader on the binary file and parse the output.
+
+    Args:
+        filepath (str): 
+            The path to the binary file.
+
+    Returns:
+        str: 
+            The parsed text output from kp_reader.
+    """
+    try:
+        result = subprocess.run(['kp_reader', filepath], capture_output=True, text=True)
+        result.check_returncode()  # Raise an error if the command failed
+        return result.stdout
+    except subprocess.CalledProcessError as e:
+        print(f"kp_reader failed: {e}")
+        return None
+    except FileNotFoundError:
+        print("kp_reader not found. Make sure it is installed and in your PATH.")
+        return None
+
+def parse_kp_reader_output(output):
+    """Parse output from kp_reader regarding the kokkos_kernel_timer tool
+
+    Args:
+        output (str): 
+            Output from kp_reader
+
+    Returns:
+        pyparsing.ParseResults: 
+            The parsed output.
+    """
+    # Define basic elements
+    number = Regex(r"[+-]?\d+(?:\.\d*)?(?:[eE][+-]?\d+)?")
+    number.setParseAction(lambda t: float(t[0]) if '.' in t[0] else int(t[0]))
+    word = Word(alphas + ":-_[]")
+    identifier = Combine(Word(alphas + "_::[]") + Optional(restOfLine))
+
+    # Define patterns for the output sections
+    header = Suppress("(Type)") + Suppress("Total Time, Call Count, Avg. Time per Call, %Total Time in Kernels, %Total Program Time")
+    separator = Suppress("-" * 73)
+
+    # Define patterns for regions
+    region_name = Suppress("-") + restOfLine("name")
+    region_data = Group(Suppress("(REGION)") + number("total_time") + number("call_count") + number("avg_time_per_call") +
+                        number("total_time_in_kernels") + number("total_program_time"))
+
+    region = Group(region_name + region_data)
+    regions = Suppress("Regions:") + OneOrMore(region)
+
+    # Define patterns for kernels
+    kernel_name = Suppress("-") + restOfLine("name")
+    kernel_data = Group(Suppress("(ParFor)") + number("total_time") + number("call_count") + number("avg_time_per_call") +
+                        number("total_time_in_kernels") + number("total_program_time")) | \
+                Group(Suppress("(ParRed)") + number("total_time") + number("call_count") + number("avg_time_per_call") +
+                        number("total_time_in_kernels") + number("total_program_time"))
+
+    kernel = Group(kernel_name + kernel_data)
+    kernels = Suppress("Kernels:") + OneOrMore(kernel)
+
+    # Define patterns for summary
+    summary_header = Suppress("Summary:")
+    summary_lines = Group(
+        Suppress("Total Execution Time (incl. Kokkos + non-Kokkos):") + number("total_exec_time") + Suppress("seconds") + Suppress(LineEnd()) +
+        Suppress("Total Time in Kokkos kernels:") + number("total_time_kokkos_kernels") + Suppress("seconds")+ Suppress(LineEnd()) +
+        Suppress("-> Time outside Kokkos kernels:") + number("time_outside_kokkos_kernels") + Suppress("seconds")+ Suppress(LineEnd()) +
+        Suppress("-> Percentage in Kokkos kernels:") + number("percentage_in_kokkos_kernels") + Suppress("%") + Suppress(LineEnd()) +
+        Suppress("Total Calls to Kokkos Kernels:") + number("total_calls_kokkos_kernels")
+    )
+    summary = summary_header + summary_lines
+
+    # Combine the grammar
+    profiling_output = header + separator + regions("regions") + separator + kernels("kernels") + separator + summary("summary") + separator
+    # Parsing the data
+    try:
+        result = profiling_output.parseString(output)
+        #print(result.dump())
+    except ParseException as pe:
+        print("Parsing error:", pe)
+    return result 

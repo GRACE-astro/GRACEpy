@@ -24,7 +24,8 @@ setup(
         "argparse",
         "tqdm",
         "vtk",
-        "pyparsing"
+        "pyparsing",
+        "subprocess"
     ],
     entry_points={  # Command-line tools
         "console_scripts": [

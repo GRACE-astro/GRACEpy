@@ -79,5 +79,10 @@ class grace_timeseries:
         self.name = name
         if not os.path.isfile(file):
             raise ValueError(f"File {file} does not exist or is not readable.")
-        self.iteration,self.time,self.data = np.loadtxt(file,unpack=True)
+        try:
+            self.iteration,self.time,self.data = np.loadtxt(file,unpack=True)
+        except:
+            self.iteration,self.data = np.loadtxt(file,unpack=True)
+            self.time = np.array([])
+        
         
