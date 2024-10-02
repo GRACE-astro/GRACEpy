@@ -63,20 +63,24 @@ class grace_xmf_reader:
         point_data = output.GetPointData() 
         self.available_point_vars_list  = [ point_data.GetArrayName(i) for i in range(point_data.GetNumberOfArrays()) ]
         self.__query_data_dimensions()
-        
+        self.__bounds = output.GetBounds() 
+    
     def __check_vtype(self,vtype):
         if  vtype == "cell" or vtype == "point":
             return 
         else:
             raise ValueError(f"Unrecognized variable type {vtype}. Supported types are 'cell' or 'point'.")
     
-    def __check_requested_var(self,varname,vtype):
+    def __check_requested_var(self,varname,vtype=None):
         if vtype == "cell":
             if not (varname in self.available_cell_vars_list):
                 raise ValueError(f"Requested cell variable {varname} not present in output.")
-        else:
+        elif vtype == "point":
             if not (varname in self.available_point_vars_list):
                 raise ValueError(f"Requested point variable {varname} not present in output.")
+        else:
+            if not (varname in self.available_cell_vars_list) and not (varname in self.available_point_vars_list):
+                raise ValueError(f"Requested variable {varname} not present in output.")
         return
     
     def __get_info(self,port=0):
@@ -120,6 +124,10 @@ class grace_xmf_reader:
             return int(np.sqrt(ncells)) 
         else:
             return int(np.cbrt(ncells))  
+
+    def grid_bounds(self):
+        """Get the grid boundary coordinates."""
+        return self.__bounds 
 
     def spatial_dimensions(self):
         """Get the number of spatial dimensions of the output."""
@@ -210,7 +218,7 @@ class grace_xmf_reader:
             np.array or vtk.vtkDataArray: The full variable output at specified time (codimension 0).
         """
         self.__check_vtype(vartype)
-        self.__check_requested_var(varname,vartype)
+        self.__check_requested_var(varname,vartype = None)
         if (time is None) and (not self.__is_at_timestep()) and (not override_no_timestep_selection):
             print("WARNING: Attempting to extract data from a reader"
                   " with no timestep selected. If you really want this, pass override_no_timestep_selection=True")
@@ -232,24 +240,24 @@ class grace_xmf_reader:
             return (coords,vararray)
 
     def get_var_1D_slice(self,varname,time=None,
-                         line_direction=np.array([1,0,0]),
-                         line_point=np.array([0,0,0]),
+                         line_point_1=None,
+                         line_point_2=None,
+                         line_n_points=100,
                          override_no_timestep_selection=False,
-                         convert_to_numpy=True,
-                         vartype="cell"):
+                         convert_to_numpy=True):
         """Get 1D slice of variable at a specified time.
 
         Args:
             varname (str): Variable name.
             time (float, optional): Time of requested output. Actual output will be at closest available time.
                                     If None current reader time will be used. Defaults to None.
-            line_direction (np.array, optional): Direction vector of the line where output is requested. Defaults to np.array([1,0,0]).
-            line_point (np.array, optional): Any point along the line where output is requested. Defaults to np.array([0,0,0]).
+            line_point_1 (np.array, optional): Point where the line starts.
+            line_point_2 (np.array, optional): Point where the line ends.
+            line_n_points: Number of points to sample along the line.
             override_no_timestep_selection (bool, optional): If True, reads even if no time is specified and the reader is 
                                                              not set at a specific time state. This means all timesteps will 
                                                              be read at once, which can be very slow. Defaults to False.
             convert_to_numpy (bool, optional): Return numpy arrays. Defaults to True.
-            vartype (str, optional): Variable type. Defaults to "cell".
 
         Returns:
             np.array or vtk.vtkDataArray: 1D slice of the variable at the specified time.
@@ -260,12 +268,14 @@ class grace_xmf_reader:
             return None
         if time is not None:
             self.set_time(time)
-        line_direction = gu.pad_array_with_zeros(line_direction)
-        line_point = gu.pad_array_with_zeros(line_point)
-        if self.is_data_2D:
-            return self.__get_1D_slice_2D_impl(varname,line_direction,line_point,convert_to_numpy,vartype)
-        else:
-            return self.__get_1D_slice_3D_impl(varname,line_direction,line_point,convert_to_numpy,vartype)
+        if line_point_1 is None:
+                line_point_1 = np.array( [self.__bounds[0], 0,0])
+        if line_point_2 is None:
+                line_point_2 = np.array( [self.__bounds[1], 0,0])
+        line_point_1 = gu.pad_array_with_zeros(line_point_1)
+        line_point_2 = gu.pad_array_with_zeros(line_point_2)
+        
+        return self.__get_1D_slice_impl(varname,line_point_1,line_point_2,line_n_points,convert_to_numpy)
     
     def get_var_2D_slice(self,varname,time=None,
                          plane_normal=np.array([0,0,1]),
@@ -487,45 +497,15 @@ class grace_xmf_reader:
             vertices.append(cell_vertices)
         return np.array(vertices)
     
-    def __get_1D_slice_2D_impl(self,varname,line_direction,line_offset,convert_to_numpy,vartype):
-        self.__check_vtype(vartype)
-        self.__check_requested_var(varname,vartype)
-        plane = gu.plane((0,0,1),(0,0,0))
-        line  = gu.line(line_offset,line_direction)
-        (cutter_normal,cutter_origin) = gu.find_intersecting_plane(plane,line).equation()
+    def __get_1D_slice_impl(self,varname,line_point_1,line_point_2,line_npoints,convert_to_numpy):
+        self.__check_requested_var(varname)
+        line = vtk.vtkLineSource()
+        line.SetPoint1(*line_point_1)
+        line.SetPoint2(*line_point_2)
+        line.SetResolution(line_npoints)
         
-        cutter_plane = vtk.vtkPlane() 
-        cutter_plane.SetNormal(list(cutter_normal))
-        cutter_plane.SetOrigin(list(cutter_origin))
-        
-        return self.__cut_dataset(varname,cutter_plane,convert_to_numpy,vartype)
-        
-    def __get_1D_slice_3D_impl(self,varname,line_direction,line_offset,convert_to_numpy,vartype):
-        self.__check_vtype(vartype)
-        self.__check_requested_var(varname,vartype)
-        
-        plane_origin = line_offset 
-        plane_normal = gu.find_normal_vector(line_direction)
-        
-        line  = gu.line(line_offset,line_direction)
-        plane = gu.plane(plane_normal,plane_origin)
-        
-        (cutter_normal,cutter_origin) = gu.find_intersecting_plane(plane,line).equation()
-        
-        cutter_plane1 = vtk.vtkPlane() 
-        cutter_plane1.SetNormal(list(cutter_normal))
-        cutter_plane1.SetOrigin(list(cutter_origin))
-        
-        cutter_plane2 = vtk.vtkPlane() 
-        cutter_plane2.SetNormal(list(plane_origin))
-        cutter_plane2.SetOrigin(list(plane_normal))
-        
-        boolean = vtk.vtkImplicitBoolean()
-        boolean.SetOperationTypeToIntersection()  
-        boolean.AddFunction(cutter_plane1)
-        boolean.AddFunction(cutter_plane2) 
-        
-        return self.__cut_dataset(varname,boolean,convert_to_numpy,vartype)
+        return self.__probe_dataset(varname,line,convert_to_numpy)
+    
     
     def __get_2D_slice_impl(self,varname,plane_normal,plane_origin,convert_to_numpy,vartype):
         self.__check_vtype(vartype)
@@ -534,6 +514,19 @@ class grace_xmf_reader:
         cutter_plane.SetNormal(list(plane_normal))
         cutter_plane.SetOrigin(list(plane_origin))
         return self.__cut_dataset(varname,cutter_plane,convert_to_numpy,vartype)
+    
+    def __probe_dataset(self, varname, probe_algo, convert_to_numpy):
+        probe_filter = vtk.vtkProbeFilter()
+        probe_filter.SetInputConnection(probe_algo.GetOutputPort())
+        probe_filter.SetSourceData(self.reader.GetOutput())
+        probe_filter.Update()
+        output = probe_filter.GetOutput()
+        vararray = output.GetPointData().GetArray(varname)
+        coords   = output.GetPoints().GetData()
+        if convert_to_numpy:
+            return (vtk_to_numpy(coords), vtk_to_numpy(vararray)[:])
+        return (coords,vararray)
+        
     
     def __cut_dataset(self,varname,cut_function,convert_to_numpy,vartype):
         cutter = vtk.vtkCutter() 

@@ -5,7 +5,7 @@ import re
 import glob 
 import numpy as np
 import subprocess
-from pyparsing import Word, alphas, alphanums, nums, Suppress, Combine, Optional, Group, OneOrMore, Regex, ZeroOrMore, ParseException, one_of, restOfLine, LineEnd
+from pyparsing import Word, alphas, alphanums, nums, Suppress, Combine, Optional, Group, OneOrMore, Regex, ZeroOrMore, ParseException, oneOf, restOfLine, LineEnd
 
         
 def parse_profiling_file_body(body):
@@ -24,7 +24,7 @@ def parse_profiling_file_body(body):
             Parsed file.
     """
     # Define the grammar
-    identifier = Combine( Word(alphas) + Optional(one_of("_ -")) + Optional(Word(alphanums) + Optional(one_of("_ -"))))
+    identifier = Combine( Word(alphas) + Optional(oneOf("_ -")) + Optional(Word(alphanums) + Optional(oneOf("_ -"))))
 
     number = Regex(r"[+-]?\d+(?:\.\d*)?(?:[eE][+-]?\d+)?")
     number.setParseAction(lambda t: float(t[0]) if '.' in t[0] else int(t[0]))
