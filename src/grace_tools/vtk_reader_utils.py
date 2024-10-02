@@ -508,7 +508,7 @@ class grace_xmf_reader:
         plane_normal = gu.find_normal_vector(line_direction)
         
         line  = gu.line(line_offset,line_direction)
-        plane = gu.plane(plane_origin,plane_normal)
+        plane = gu.plane(plane_normal,plane_origin)
         
         (cutter_normal,cutter_origin) = gu.find_intersecting_plane(plane,line).equation()
         
