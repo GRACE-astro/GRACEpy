@@ -25,13 +25,14 @@ setup(
         "tqdm",
         "vtk",
         "pyparsing",
-        "subprocess"
+        "pyyaml"
     ],
     entry_points={  # Command-line tools
         "console_scripts": [
             "archive_source=scripts.archive_source:main",
             "unpack_archive=scripts.unpack_archive:main",  
-            "create_descriptor=scripts.create_descriptor:main"
+            "create_descriptor=scripts.create_descriptor:main",
+            "grace_info=scripts.grace_info:main"
         ],
     },
 )
