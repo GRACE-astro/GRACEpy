@@ -69,6 +69,16 @@ class grace_simulation:
     
     
     def __find_parfile(self):
+        """
+        Searches for a parameter file (YAML) in the simulation directory.
+        This method looks for YAML files in the specified simulation directory.
+        If no YAML file is found, or if more than one YAML file is found, it prints
+        a warning message and returns None. If exactly one YAML file is found, it
+        returns the path to that file.
+        Returns:
+            str or None: The path to the found YAML file, or None if no suitable file is found.
+        """
+        
         patt = os.path.join(self.simdir,"*.yaml")
         flist = glob.glob(patt)
         if len(flist) == 0:
@@ -82,6 +92,17 @@ class grace_simulation:
         return flist[0]
     
     def __parse_parfile(self,parfile):
+        """
+        Parses a parameter file to set output directories and simulation name.
+        If no parameter file is provided, default values are used.
+        Args:
+            parfile (str or None): Path to the parameter file. If None, default values are used.
+        Attributes:
+            volume_out_dir (str): Directory for volume output files.
+            scalar_out_dir (str): Directory for scalar output files.
+            name (str): Name of the simulation.
+        """
+        
         if parfile is None:
             self.volume_out_dir = os.path.join(self.simdir,"output_volume")
             self.scalar_out_dir = os.path.join(self.simdir,"output_scalar")

@@ -66,12 +66,39 @@ class grace_xmf_reader:
         self.__bounds = output.GetBounds() 
     
     def __check_vtype(self,vtype):
+        """
+        Checks if the provided variable type is valid.
+
+        Parameters:
+        vtype (str): The variable type to check. Must be either 'cell' or 'point'.
+
+        Returns:
+        None
+
+        Raises:
+        ValueError: If the provided variable type is not 'cell' or 'point'.
+        """
         if  vtype == "cell" or vtype == "point":
             return 
         else:
             raise ValueError(f"Unrecognized variable type {vtype}. Supported types are 'cell' or 'point'.")
     
     def __check_requested_var(self,varname,vtype=None):
+        """
+        Checks if the requested variable is present in the available variables list.
+
+        Parameters:
+        -----------
+        varname : str
+            The name of the variable to check.
+        vtype : str, optional
+            The type of the variable, either "cell" or "point". If not specified, the function will check both cell and point variables.
+
+        Raises:
+        -------
+        ValueError
+            If the requested variable is not present in the available variables list.
+        """
         if vtype == "cell":
             if not (varname in self.available_cell_vars_list):
                 raise ValueError(f"Requested cell variable {varname} not present in output.")
@@ -84,25 +111,77 @@ class grace_xmf_reader:
         return
     
     def __get_info(self,port=0):
+        """
+        Retrieve the output information from the reader.
+
+        Args:
+            port (int, optional): The port number to get the output information from. Defaults to 0.
+
+        Returns:
+            vtkInformation: The output information for the specified port.
+        """
         return self.reader.GetOutputInformation(port)
     
     def __has_timestep_information(self):
+        """
+        Checks if the VTK data contains timestep information.
+
+        Returns:
+            bool: True if the VTK data has timestep information, False otherwise.
+        """
         return self.__get_info().Has(vtk.vtkStreamingDemandDrivenPipeline.TIME_STEPS())
     
     def __is_at_timestep(self):
+        """
+        Checks if the current VTK pipeline is at a specific timestep.
+
+        Returns:
+            bool: True if the current VTK pipeline is at the specified timestep, False otherwise.
+        """
         return self.__get_info().Has(vtk.vtkStreamingDemandDrivenPipeline.UPDATE_TIME_STEP())
     
     def __get_current_timestep(self):
+        """
+        Retrieve the current timestep if the pipeline is at a timestep.
+
+        This method checks if the pipeline is currently at a timestep and, if so,
+        retrieves the current timestep information from the VTK pipeline.
+
+        Returns:
+            float: The current timestep value if the pipeline is at a timestep.
+        """
         if self.__is_at_timestep():
             return self.__get_info().Get(vtk.vtkStreamingDemandDrivenPipeline.UPDATE_TIME_STEP())
     
     def __get_cell_centers(self,output):
+        """
+        Private method to compute the cell centers of a given VTK output.
+
+        Parameters:
+        output (vtk.vtkDataSet): The VTK dataset from which to compute cell centers.
+
+        Returns:
+        vtk.vtkDataArray: The data array containing the coordinates of the cell centers.
+        """
         cell_centers = vtk.vtkCellCenters()
         cell_centers.SetInputData(output)
         cell_centers.Update() 
         return cell_centers.GetOutput().GetPoints().GetData() 
     
     def __query_data_dimensions(self):
+        """
+        Queries the dimensions of the data read by the VTK reader and sets the 
+        `is_data_2D` attribute accordingly.
+
+        This method sets the time index to 0 and retrieves the output from the 
+        VTK reader. It then checks the cell types in the output to determine 
+        if the data is 2D or 3D. If the cell type is quadrilateral (cell type 9), 
+        the data is considered 2D. Otherwise, it is considered 3D. Finally, 
+        the reader is reset to its initial state.
+
+        Returns:
+            None
+        """
         self.set_time_index(0)
         output = self.reader.GetOutput()
         cell_types = vtk.vtkCellTypes()
@@ -113,6 +192,17 @@ class grace_xmf_reader:
         return
     
     def __find_ncells(self):
+        """
+        Private method to find the number of cells in the dataset.
+
+        This method determines the number of cells by examining the "Quad_ID" variable.
+        It counts the number of consecutive cells with the same Quad_ID to determine the total number of cells.
+        Depending on whether the data is 2D or 3D, it returns the square root or cube root of the number of cells.
+
+        Returns:
+            int: The number of cells in the dataset. For 2D data, it returns the square root of the number of cells.
+                 For 3D data, it returns the cube root of the number of cells.
+        """
         _, quadid = self.get_var("Quad_ID",convert_to_numpy=True)
         ncells = 0
         qid0 = quadid[0]
@@ -218,7 +308,7 @@ class grace_xmf_reader:
             np.array or vtk.vtkDataArray: The full variable output at specified time (codimension 0).
         """
         self.__check_vtype(vartype)
-        self.__check_requested_var(varname,vartype = None)
+        self.__check_requested_var(varname, vartype=vartype)
         if (time is None) and (not self.__is_at_timestep()) and (not override_no_timestep_selection):
             print("WARNING: Attempting to extract data from a reader"
                   " with no timestep selected. If you really want this, pass override_no_timestep_selection=True")
@@ -233,7 +323,7 @@ class grace_xmf_reader:
             coords   = self.__get_cell_centers(output)
         else: 
             vararray = point_data.GetArray(varname)
-            coords   = self.__get_cell_centers(output)
+            coords   = output.GetPoints().GetData()
         if convert_to_numpy:
             return (vtk_to_numpy(coords), vtk_to_numpy(vararray)[:])
         else:
@@ -474,6 +564,19 @@ class grace_xmf_reader:
         
         
     def __get_quadrant_vertices_2D(self,ncells: int):
+        """
+        Computes the vertices of quadrants in a 2D grid.
+
+        This method retrieves the vertices of quadrants in a 2D grid from the output
+        of a VTK object. The vertices are computed based on the number of cells in
+        each dimension.
+
+        Args:
+            ncells (int): The number of cells in each dimension of the grid.
+
+        Returns:
+            np.ndarray: A numpy array containing the vertices of the quadrants.
+        """
         output = self.get_output()
         vertices = []
         print("Ncells: {}".format(ncells))
@@ -485,6 +588,13 @@ class grace_xmf_reader:
         return np.array(vertices)
 
     def __get_quadrant_vertices_3D(self,ncells: int):
+        """
+        Computes the vertices of the quadrants in a 3D grid.
+        Args:
+            ncells (int): The number of cells along one dimension of the grid.
+        Returns:
+            np.ndarray: A numpy array containing the vertices of the quadrants.
+        """
         output = self.get_output()
         vertices = []
         
@@ -498,6 +608,17 @@ class grace_xmf_reader:
         return np.array(vertices)
     
     def __get_1D_slice_impl(self,varname,line_point_1,line_point_2,line_npoints,convert_to_numpy):
+        """
+        Extracts a 1D slice from the dataset along a specified line.
+        Parameters:
+        varname (str): The name of the variable to extract.
+        line_point_1 (tuple): The starting point of the line (x, y, z).
+        line_point_2 (tuple): The ending point of the line (x, y, z).
+        line_npoints (int): The number of points along the line.
+        convert_to_numpy (bool): If True, converts the result to a NumPy array.
+        Returns:
+        vtkDataArray or numpy.ndarray: The extracted data along the line, either as a VTK data array or a NumPy array.
+        """
         self.__check_requested_var(varname)
         line = vtk.vtkLineSource()
         line.SetPoint1(*line_point_1)
@@ -508,6 +629,20 @@ class grace_xmf_reader:
     
     
     def __get_2D_slice_impl(self,varname,plane_normal,plane_origin,convert_to_numpy,vartype):
+        """
+        Extracts a 2D slice from a dataset based on the specified plane parameters.
+        Args:
+            varname (str): The name of the variable to extract.
+            plane_normal (tuple or list): The normal vector of the slicing plane.
+            plane_origin (tuple or list): The origin point of the slicing plane.
+            convert_to_numpy (bool): If True, converts the result to a NumPy array.
+            vartype (str): The type of the variable (e.g., scalar, vector).
+        Returns:
+            The sliced dataset, optionally converted to a NumPy array.
+        Raises:
+            ValueError: If the variable type or requested variable is invalid.
+        """
+        
         self.__check_vtype(vartype)
         self.__check_requested_var(varname,vartype)
         cutter_plane = vtk.vtkPlane() 
@@ -516,6 +651,17 @@ class grace_xmf_reader:
         return self.__cut_dataset(varname,cutter_plane,convert_to_numpy,vartype)
     
     def __probe_dataset(self, varname, probe_algo, convert_to_numpy):
+        """
+        Probes a dataset using the specified probe algorithm and retrieves the specified variable array.
+        Args:
+            varname (str): The name of the variable array to retrieve.
+            probe_algo (vtkAlgorithm): The VTK algorithm used for probing the dataset.
+            convert_to_numpy (bool): If True, converts the output coordinates and variable array to NumPy arrays.
+        Returns:
+            tuple: A tuple containing the coordinates and the variable array. If convert_to_numpy is True, 
+                   the coordinates and variable array are returned as NumPy arrays. Otherwise, they are 
+                   returned as VTK arrays.
+        """
         probe_filter = vtk.vtkProbeFilter()
         probe_filter.SetInputConnection(probe_algo.GetOutputPort())
         probe_filter.SetSourceData(self.reader.GetOutput())
@@ -529,6 +675,18 @@ class grace_xmf_reader:
         
     
     def __cut_dataset(self,varname,cut_function,convert_to_numpy,vartype):
+        """
+        Cuts the dataset using the specified cutting function and extracts the variable data.
+        Parameters:
+        varname (str): The name of the variable to extract.
+        cut_function (vtk.vtkImplicitFunction): The cutting function to use.
+        convert_to_numpy (bool): If True, converts the output to numpy arrays.
+        vartype (str): The type of data to extract, either "cell" or "point".
+        Returns:
+        tuple: A tuple containing the coordinates and the variable data. If convert_to_numpy is True, 
+                both elements of the tuple are numpy arrays. If convert_to_numpy is False, both elements 
+                are VTK arrays. If the cutter produces no output, returns (None, None).
+        """
         cutter = vtk.vtkCutter() 
         cutter.SetCutFunction(cut_function)
         cutter.SetInputConnection(self.reader.GetOutputPort())
@@ -546,7 +704,7 @@ class grace_xmf_reader:
             coords   = self.__get_cell_centers(output)
         else: 
             vararray = point_data.GetArray(varname)
-            coords   = self.__get_cell_centers(output)
+            coords   = output.GetPoints().GetData()
         if convert_to_numpy:
             return (vtk_to_numpy(coords), vtk_to_numpy(vararray)[:])
         else:

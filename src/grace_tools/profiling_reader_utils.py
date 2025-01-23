@@ -79,6 +79,17 @@ class grace_gpu_profiling_data:
         self.__parse_profiling_data(prof_results)
     
     def __parse_profiling_data(self, prof_data):
+        """
+        Parses profiling data and organizes it by kernel names.
+        Args:
+            prof_data (list): A list of profiling data entries.
+        Returns:
+            None
+        This method processes the provided profiling data, extracts unique kernel names,
+        and organizes the profiling entries by these kernel names. The processed data
+        is stored in the instance variables `__kernel_names` and `__data`.
+        """
+        
         tmp_data = list()
         names = list() 
         for entry in prof_data:
