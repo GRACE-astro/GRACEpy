@@ -110,6 +110,14 @@ class grace_xmf_reader:
                 raise ValueError(f"Requested variable {varname} not present in output.")
         return
     
+    def __get_vartype(self, varname):
+        if varname in self.available_cell_vars_list:
+            return "cell"
+        elif varname in self.available_point_vars_list:
+            return "point"
+        else:
+            raise ValueError(f"Variable {var} is not present in simulation data.")    
+    
     def __get_info(self,port=0):
         """
         Retrieve the output information from the reader.
@@ -308,7 +316,7 @@ class grace_xmf_reader:
             np.array or vtk.vtkDataArray: The full variable output at specified time (codimension 0).
         """
         self.__check_vtype(vartype)
-        self.__check_requested_var(varname, vartype=vartype)
+        self.__check_requested_var(varname, vtype=vartype)
         if (time is None) and (not self.__is_at_timestep()) and (not override_no_timestep_selection):
             print("WARNING: Attempting to extract data from a reader"
                   " with no timestep selected. If you really want this, pass override_no_timestep_selection=True")
