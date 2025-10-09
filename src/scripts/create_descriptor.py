@@ -16,9 +16,20 @@ def main():
     parser = argparse.ArgumentParser(description='Generate xmf descriptor file for grace hdf5 output.')
     parser.add_argument('input_dir', type=str, help='Path containing grace HDF5 output to be parsed.')
     parser.add_argument('output_file', type=str, help='Output xmf file.')
+    parser.add_argument('--mode', 
+                        type=str, default='auto', 
+                        choices=['auto', 'volume', 'plane'],  # only allow these values
+                        help="Can be 'auto' 'volume' or 'plane' depending on the kind of output processed.")
     parser.add_argument('--verbose', action='store_true', default=False, help='Print verbose output.')
     args = parser.parse_args()
-    xmf.write_xmf_file(args.output_file+".xmf",args.input_dir,verbose=args.verbose)
+    outfile = args.output_file
+    if not outfile.endswith(".xmf"):
+        outfile += ".xmf"
+    if args.verbose:
+        print(f"Generating XMF descriptor for {args.input_dir}")
+        print(f"Output file: {outfile}")
+
+    xmf.write_xmf_file(outfile,args.input_dir,args.mode,verbose=args.verbose)
     
 if __name__=="__main__":
     main()

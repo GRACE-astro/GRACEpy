@@ -717,13 +717,3 @@ class grace_xmf_reader:
             return (vtk_to_numpy(coords), vtk_to_numpy(vararray)[:])
         else:
             return (coords,vararray)
-        
-        
-    
-    
-        
-        
-
-    
-
-

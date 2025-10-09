@@ -3,6 +3,31 @@ import os
 import glob
 import h5py
 import re
+from collections import defaultdict
+
+
+# ---------------- Helper to group planes by iteration ----------------
+
+def group_files__kind_iteration(files):
+    """
+    Groups HDF5 files by iteration and plane.
+    Returns a dict: {iteration: {plane: filename, ...}, ...}
+    """
+    grouped = defaultdict(dict)
+    for f in files:
+        iter_num = extract_iteration(f)
+        plane_match = re.search(r'plane_(xy|yz|xz)_\d+\.h5$', f)
+        vol_match = re.search(r'volume_out_\d+\.h5$', f)
+        if plane_match: 
+            kind = plane_match.group(1) + "_plane"
+        elif vol_match:
+            kind = 'vol'
+        else :
+            print(f"WARNING could not determine kind of file {f}, assuming volume")
+            kind = 'vol'
+        grouped[iter_num][kind] = f
+    return grouped
+
 
 def write_xmf_scalar_attribute(name, staggering, dimensions,h5fname):
     """
@@ -92,6 +117,85 @@ def write_xmf_grid(iteration,time,points_dims,cells_dims,cells_type,h5name,attrs
             output += write_xmf_symm_tensor_attribute(attr["name"],attr["staggering"],attr["dimensions"],h5name)
     return output + "</Grid>\n"
 
+def write_xmf_grid_no_time(name,points_dims,cells_dims,cells_type,h5name,attrs):
+    """
+    Generates an XMF (eXtensible Model Format) grid definition string for a given iteration and time step.
+
+    Parameters:
+    iteration (int): The iteration number of the grid.
+    time (float): The time value associated with the grid.
+    points_dims (tuple): A tuple containing the dimensions of the points (number of points, number of coordinates per point).
+    cells_dims (tuple): A tuple containing the dimensions of the cells (number of cells, number of points per cell).
+    cells_type (str): The type of the cells (e.g., "Hexahedron", "Tetrahedron").
+    h5name (str): The name of the HDF5 file containing the data.
+    attrs (list): A list of dictionaries, each containing attributes of the grid. Each dictionary should have the keys:
+        - "name" (str): The name of the attribute.
+        - "dtype" (str): The data type of the attribute ("Scalar", "Vector", or other).
+        - "staggering" (str): The staggering type of the attribute.
+        - "dimensions" (tuple): The dimensions of the attribute data.
+
+    Returns:
+    str: An XMF string defining the grid and its attributes.
+    """
+    output = '''<Grid Name="Grid_{}">
+    <Geometry Origin="" Type="XYZ">
+    <DataItem DataType="Float" Dimensions="{} {}" Format="HDF" Precision="8">{}:/Points</DataItem>
+    </Geometry>
+    <Topology Dimensions="{}" Type="{}">
+    <DataItem DataType="UInt" Dimensions="{} {}" Format="HDF" Precision="4">{}:/Cells</DataItem>
+    </Topology>\n'''.format(name,points_dims[0],points_dims[1],h5name,cells_dims[0],cells_type,cells_dims[0],cells_dims[1],h5name)
+    for attr in attrs:
+        if( attr["dtype"] == "Scalar"):
+            output += write_xmf_scalar_attribute(attr["name"],attr["staggering"],attr["dimensions"],h5name)
+        elif attr["dtype"] == "Vector":
+            output += write_xmf_vector_attribute(attr["name"],attr["staggering"],attr["dimensions"],h5name)
+        else:
+            output += write_xmf_symm_tensor_attribute(attr["name"],attr["staggering"],attr["dimensions"],h5name)
+    return output + "</Grid>\n"
+
+def write_xmf_spatial_collection(iteration,time,grids):
+    """
+    Generates an XMF (eXtensible Model Format) spatial collection string for a given set of grids.
+    Parameters:
+    name (str): The name of the XMF collection.
+    grids (list of dict): A list of dictionaries, each representing a grid. Each dictionary should contain the following keys:
+        - "iteration" (int): The iteration number of the grid.
+        - "time" (float): The time value associated with the grid.
+        - "points_dims" (tuple of int): The dimensions of the points in the grid.
+        - "cells_dims" (tuple of int): The dimensions of the cells in the grid.
+        - "cells_type" (str): The type of cells in the grid.
+        - "h5name" (str): The name of the HDF5 file associated with the grid.
+        - "attrs" (dict): A dictionary of attributes for the grid.
+    Returns:
+    str: An XMF collection string representing the provided grids.
+    """
+    output = '''<Grid CollectionType="Spatial" GridType="Collection" Name="Grids_{}">\n'''.format(iteration)
+    output += '''<Time Value="{}"/>'''.format(time)
+    for grid in grids:
+        output += write_xmf_grid_no_time(grid["name"],grid["points_dims"],grid["cells_dims"],grid["cells_type"],grid["h5name"],grid["attrs"])
+    return output + "</Grid>\n"
+
+def write_xmf_temporal_collection(name, collections):
+    """
+    Generates an XMF (eXtensible Model Format) spatial collection string for a given set of grids.
+    Parameters:
+    name (str): The name of the XMF collection.
+    grids (list of dict): A list of dictionaries, each representing a grid. Each dictionary should contain the following keys:
+        - "iteration" (int): The iteration number of the grid.
+        - "time" (float): The time value associated with the grid.
+        - "points_dims" (tuple of int): The dimensions of the points in the grid.
+        - "cells_dims" (tuple of int): The dimensions of the cells in the grid.
+        - "cells_type" (str): The type of cells in the grid.
+        - "h5name" (str): The name of the HDF5 file associated with the grid.
+        - "attrs" (dict): A dictionary of attributes for the grid.
+    Returns:
+    str: An XMF collection string representing the provided grids.
+    """
+    output = '''<Grid CollectionType="Temporal" GridType="Collection" Name="{}">\n'''.format(name)
+    for coll in collections:
+        output += write_xmf_spatial_collection(coll['iteration'],coll['time'],coll['grids'])
+    return output + "</Grid>\n"
+
 def write_xmf_collection(name,grids):
     """
     Generates an XMF (eXtensible Model Format) collection string for a given set of grids.
@@ -128,6 +232,24 @@ def write_xmf_file_header(collection):
     <Xdmf xmlns:xi="http://www.w3.org/2001/XInclude" Version="3.0">
     <Domain>'''
     output += write_xmf_collection(collection["name"],collection["grids"])
+    return output + '''</Domain>
+    </Xdmf>\n'''
+
+def write_xmf_file_header_spatial_collection(collection):
+    """
+    Generates the header for an XMF (eXtensible Model Format) file.
+    Parameters:
+    collection (dict): A dictionary containing the name and grids of the collection.
+                       The dictionary should have the following keys:
+                       - "name": A string representing the name of the collection.
+                       - "grids": A list of grids to be included in the collection.
+    Returns:
+    str: A string containing the XMF file header with the collection information.
+    """
+    output = '''<?xml version="1.0" encoding="utf-8"?>
+    <Xdmf xmlns:xi="http://www.w3.org/2001/XInclude" Version="3.0">
+    <Domain>'''
+    output += write_xmf_temporal_collection(collection["name"],collection["collections"])
     return output + '''</Domain>
     </Xdmf>\n'''
 
@@ -205,7 +327,15 @@ def extract_iteration(filename):
     match = re.search(r'\S+_(\d+)\.h5', filename)
     return int(match.group(1)) if match else -1
 
-def write_xmf_file(outfile, bdir="./",iterations=None, verbose: bool = False):
+def construct_grid(f, name="volume_grid"):
+    ff = os.path.abspath(f)
+    vnames,vtypes,vstags,cell_dims,points_dims,var_dims,time,iteration,topology = collect_hdf5_attributes(ff)
+    attrs = []
+    for i,vname in enumerate(vnames):
+        attrs.append({"name": vname, "dtype": vtypes[i], "dimensions": var_dims[i], "staggering": vstags[i]})
+    return {"name": name, "iteration": iteration, "time": time, "points_dims": points_dims, "cells_dims": cell_dims, "h5name": ff, "cells_type": topology, "attrs": attrs}
+
+def write_xmf_file(outfile, bdir="./",mode="volume", verbose: bool = False):
     """
     Writes an XMF (eXtensible Model Format) file that references a collection of HDF5 files.
     Parameters:
@@ -216,28 +346,40 @@ def write_xmf_file(outfile, bdir="./",iterations=None, verbose: bool = False):
     Returns:
     None
     """
-    flist = []
     outfile = os.path.abspath(outfile)
-    if iterations is None:
-        flist = glob.glob(bdir+"/*.h5")
-    elif type(iterations) is list:
-        for it in iterations:
-            flist.append(find_iter_file(bdir,it))
-    else:
-        flist.append(find_iter_file(bdir,iterations))
-    sorted_file_list = sorted(flist, key=extract_iteration)
-    if len(sorted_file_list)==0:
-        raise ValueError("No files found in directory {}".format(bdir))
+    flist = glob.glob(os.path.join(bdir, "*.h5"))
+    grouped = group_files__kind_iteration(flist)
+    iterations = sorted(grouped.keys())
+    kinds_per_iter = {it: list(grouped[it].keys()) for it in iterations}
+    
+    use_spatial_collection = any(
+        any(k != 'vol' and k != 'unknown' for k in kinds_per_iter[it])
+        for it in iterations
+    )
+
     if verbose:
-        print("Found {} files in directory {}".format(len(sorted_file_list),bdir))
-    grids = [] 
-    for ff in sorted_file_list:
-        ff = os.path.abspath(ff)
-        vnames,vtypes,vstags,cell_dims,points_dims,var_dims,time,iteration,topology = collect_hdf5_attributes(ff)
-        attrs = []
-        for i,vname in enumerate(vnames):
-            attrs.append({"name": vname, "dtype": vtypes[i], "dimensions": var_dims[i], "staggering": vstags[i]})
-        grids.append({"iteration": iteration, "time": time, "points_dims": points_dims, "cells_dims": cell_dims, "h5name": ff, "cells_type": topology, "attrs": attrs})
-    with open(outfile,"w") as fout:
-        fout.write(write_xmf_file_header({"name":"collection", "grids":grids}))
+        print("Iterations:", iterations)
+        print("Kinds per iteration:", kinds_per_iter)
+        print("Use spatial collection:", use_spatial_collection)
+    
+    if mode == "volume" or (mode=="auto" and not use_spatial_collection):
+        grids = []
+        for it in iterations:
+            if 'vol' in kinds_per_iter[it]:
+                grids.append(construct_grid(grouped[it]['vol']))
+            else:
+                print(f"WARNING no volume output for iter {it}")
+        with open(outfile,"w") as fout:
+            fout.write(write_xmf_file_header({"name":"collection", "grids":grids}))
+    elif mode == "plane" or (mode=="auto" and use_spatial_collection):
+        colls = [] 
+        for it in iterations:
+            grids = []
+            for k in grouped[it].keys():
+                grids.append(construct_grid(grouped[it][k], k))
+            time = grids[-1]['time']
+            colls.append({'iteration': it, 'time': time, 'grids': grids})
+        with open(outfile,"w") as fout:
+            fout.write(write_xmf_file_header_spatial_collection({"name":"collection", "collections":colls}))
+    
     return 
