@@ -7,6 +7,22 @@ from collections import defaultdict
 
 
 # ---------------- Helper to group planes by iteration ----------------
+def dtype_to_xdmf(dtype):
+    """
+    Converts a NumPy dtype to XDMF DataType and Precision.
+    
+    Returns:
+        xdmf_type (str), precision (int)
+    """
+    if np.issubdtype(dtype, np.floating):
+        return "Float", dtype.itemsize
+    elif np.issubdtype(dtype, np.signedinteger):
+        return "Int", dtype.itemsize
+    elif np.issubdtype(dtype, np.unsignedinteger):
+        return "UInt", dtype.itemsize
+    else:
+        raise ValueError(f"Unsupported dtype for XDMF: {dtype}")
+
 
 def group_files__kind_iteration(files):
     """
@@ -29,7 +45,7 @@ def group_files__kind_iteration(files):
     return grouped
 
 
-def write_xmf_scalar_attribute(name, staggering, dimensions,h5fname):
+def write_xmf_scalar_attribute(name, staggering, dimensions,dtype,h5fname):
     """
     Generates an XMF (eXtensible Model Format) string for a scalar attribute.
 
@@ -42,11 +58,12 @@ def write_xmf_scalar_attribute(name, staggering, dimensions,h5fname):
     Returns:
     str: An XMF string representing the scalar attribute.
     """
+    dstr,prec = dtype_to_xdmf(dtype)
     return '''<Attribute Center="{}" ElementCell="" ElementDegree="0" ElementFamily="" ItemType="" Name="{}" Type="Scalar">
-    <DataItem DataType="Float" Dimensions="{}" Format="HDF" Precision="8">{}:/{}</DataItem>
-    </Attribute>\n'''.format(staggering,name,dimensions,h5fname,name)
+    <DataItem DataType="{}" Dimensions="{}" Format="HDF" Precision="{}">{}:/{}</DataItem>
+    </Attribute>\n'''.format(staggering,name,dstr,dimensions,prec,h5fname,name)
 
-def write_xmf_vector_attribute(name,staggering,dimensions,h5fname):
+def write_xmf_vector_attribute(name,staggering,dimensions,dtype,h5fname):
     """
     Generates an XMF (eXtensible Model Format) string for a vector attribute.
 
@@ -59,9 +76,10 @@ def write_xmf_vector_attribute(name,staggering,dimensions,h5fname):
     Returns:
     str: An XMF string defining the vector attribute.
     """
+    dstr,prec = dtype_to_xdmf(dtype)
     return '''<Attribute Center="{}" ElementCell="" ElementDegree="0" ElementFamily="" ItemType="" Name="{}" Type="Vector">
-    <DataItem DataType="Float" Dimensions="{} 3" Format="HDF" Precision="8">{}:/{}</DataItem>
-    </Attribute>\n'''.format(staggering,name,dimensions,h5fname,name)
+    <DataItem DataType="{}" Dimensions="{} 3" Format="HDF" Precision="{}">{}:/{}</DataItem>
+    </Attribute>\n'''.format(staggering,name,dstr,dimensions,prec,h5fname,name)
     
 def write_xmf_symm_tensor_attribute(name,staggering,dimensions,h5fname):
     """
@@ -76,9 +94,10 @@ def write_xmf_symm_tensor_attribute(name,staggering,dimensions,h5fname):
     Returns:
     str: An XMF string defining the symmetric tensor attribute.
     """
+    dstr,prec = dtype_to_xdmf(dtype)
     return '''<Attribute Center="{}" ElementCell="" ElementDegree="0" ElementFamily="" ItemType="" Name="{}" Type="Tensor6">
-    <DataItem DataType="Float" Dimensions="{} 6" Format="HDF" Precision="8">{}:/{}</DataItem>
-    </Attribute>\n'''.format(staggering,name,dimensions,h5fname,name)
+    <DataItem DataType="{}" Dimensions="{} 6" Format="HDF" Precision="{}">{}:/{}</DataItem>
+    </Attribute>\n'''.format(staggering,name,dstr,dimensions,prec,h5fname,name)
 
 def write_xmf_grid(iteration,time,points_dims,cells_dims,cells_type,h5name,attrs):
     """
@@ -110,11 +129,11 @@ def write_xmf_grid(iteration,time,points_dims,cells_dims,cells_type,h5name,attrs
     </Topology>\n'''.format(iteration,time,points_dims[0],points_dims[1],h5name,cells_dims[0],cells_type,cells_dims[0],cells_dims[1],h5name)
     for attr in attrs:
         if( attr["dtype"] == "Scalar"):
-            output += write_xmf_scalar_attribute(attr["name"],attr["staggering"],attr["dimensions"],h5name)
+            output += write_xmf_scalar_attribute(attr["name"],attr["staggering"],attr["dimensions"],attr["data_type"],h5name)
         elif attr["dtype"] == "Vector":
-            output += write_xmf_vector_attribute(attr["name"],attr["staggering"],attr["dimensions"],h5name)
+            output += write_xmf_vector_attribute(attr["name"],attr["staggering"],attr["dimensions"],attr["data_type"],h5name)
         else:
-            output += write_xmf_symm_tensor_attribute(attr["name"],attr["staggering"],attr["dimensions"],h5name)
+            output += write_xmf_symm_tensor_attribute(attr["name"],attr["staggering"],attr["dimensions"],attr["data_type"],h5name)
     return output + "</Grid>\n"
 
 def write_xmf_grid_no_time(name,points_dims,cells_dims,cells_type,h5name,attrs):
@@ -146,11 +165,11 @@ def write_xmf_grid_no_time(name,points_dims,cells_dims,cells_type,h5name,attrs):
     </Topology>\n'''.format(name,points_dims[0],points_dims[1],h5name,cells_dims[0],cells_type,cells_dims[0],cells_dims[1],h5name)
     for attr in attrs:
         if( attr["dtype"] == "Scalar"):
-            output += write_xmf_scalar_attribute(attr["name"],attr["staggering"],attr["dimensions"],h5name)
+            output += write_xmf_scalar_attribute(attr["name"],attr["staggering"],attr["dimensions"],attr["data_type"],h5name)
         elif attr["dtype"] == "Vector":
-            output += write_xmf_vector_attribute(attr["name"],attr["staggering"],attr["dimensions"],h5name)
+            output += write_xmf_vector_attribute(attr["name"],attr["staggering"],attr["dimensions"],attr["data_type"],h5name)
         else:
-            output += write_xmf_symm_tensor_attribute(attr["name"],attr["staggering"],attr["dimensions"],h5name)
+            output += write_xmf_symm_tensor_attribute(attr["name"],attr["staggering"],attr["dimensions"],attr["data_type"],h5name)
     return output + "</Grid>\n"
 
 def write_xmf_spatial_collection(iteration,time,grids):
@@ -253,47 +272,66 @@ def write_xmf_file_header_spatial_collection(collection):
     return output + '''</Domain>
     </Xdmf>\n'''
 
+
 def collect_hdf5_attributes(fname):
     """
-    Collects attributes from an HDF5 file.
+    Collects attributes from an HDF5 file, including dataset type and precision.
+    
     Parameters:
     fname (str): The path to the HDF5 file.
+    
     Returns:
-    tuple: A tuple containing the following elements:
-        - vnames (list): A list of variable names in the HDF5 file.
-        - vtypes (list): A list of variable types corresponding to the variable names.
-        - vstags (list): A list of staggering types corresponding to the variable names.
-        - cell_dims (tuple): The dimensions of the "Cells" dataset.
-        - point_dims (tuple): The dimensions of the "Points" dataset.
-        - var_dims (list): A list containing the first dimension of the "Cells" dataset.
-        - time (float): The time attribute from the HDF5 file.
-        - iteration (int): The iteration attribute from the HDF5 file.
-        - topology (str): The cell topology attribute from the "Cells" dataset.
+    tuple: A tuple containing:
+        - vnames (list): variable names in the HDF5 file.
+        - vtypes (list): VariableType attribute for each variable.
+        - vstags (list): VariableStaggering attribute for each variable.
+        - vdatatypes (list): NumPy dtype for each variable.
+        - vprecisions (list): Size in bytes for each variable's dtype.
+        - cell_dims (tuple): shape of "Cells" dataset.
+        - point_dims (tuple): shape of "Points" dataset.
+        - var_dims (list): first dimension of the dataset depending on staggering.
+        - time (float): Time attribute.
+        - iteration (int): Iteration attribute.
+        - topology (str): CellTopology attribute of "Cells".
     """
     vnames = []
-    vtypes = [] 
-    vstags = [] 
+    vtypes = []
+    vstags = []
+    vdatatypes = []
     var_dims = []
-    with h5py.File(fname,"r") as f:
+    
+    with h5py.File(fname, "r") as f:
         cell_dims = f["Cells"].shape
         point_dims = f["Points"].shape
-        
+
         time = f.attrs["Time"]
         iteration = f.attrs["Iteration"]
         topology = f["Cells"].attrs["CellTopology"]
+
         for vname in f.keys():
-            if( vname=="Cells" or vname=="Points"):
+            if vname in ("Cells", "Points"):
                 continue
-            vtypes.append(f[vname].attrs["VariableType"])
-            vstags.append(f[vname].attrs["VariableStaggering"])
+            
+            ds = f[vname]
+            vtypes.append(ds.attrs["VariableType"])
+            vstags.append(ds.attrs["VariableStaggering"])
+            
+            # Determine dimensions based on staggering
             if vstags[-1] == "Cell":
                 var_dims.append(cell_dims[0])
             elif vstags[-1] == "Node":
                 var_dims.append(point_dims[0])
             else:
-                raise ValueError("Unknown staggering type {}".format(vstags[-1]))
+                raise ValueError(f"Unknown staggering type {vstags[-1]}")
+            
+            # Dataset dtype and precision
+            vdatatypes.append(ds.dtype)
+            
             vnames.append(vname)
-    return vnames,vtypes,vstags,cell_dims,point_dims,var_dims,time,iteration,topology
+    
+    return (vnames, vtypes, vstags, vdatatypes,
+            cell_dims, point_dims, var_dims, time, iteration, topology)
+
 
 def find_iter_file(bdir,iteration):
     """
@@ -329,13 +367,13 @@ def extract_iteration(filename):
 
 def construct_grid(f, name="volume_grid"):
     ff = os.path.abspath(f)
-    vnames,vtypes,vstags,cell_dims,points_dims,var_dims,time,iteration,topology = collect_hdf5_attributes(ff)
+    vnames,vtypes,vstags,vdtype,cell_dims,points_dims,var_dims,time,iteration,topology = collect_hdf5_attributes(ff)
     attrs = []
     for i,vname in enumerate(vnames):
-        attrs.append({"name": vname, "dtype": vtypes[i], "dimensions": var_dims[i], "staggering": vstags[i]})
+        attrs.append({"name": vname, "dtype": vtypes[i], "data_type": vdtype[i], "dimensions": var_dims[i], "staggering": vstags[i]})
     return {"name": name, "iteration": iteration, "time": time, "points_dims": points_dims, "cells_dims": cell_dims, "h5name": ff, "cells_type": topology, "attrs": attrs}
 
-def write_xmf_file(outfile, bdir="./",mode="volume", verbose: bool = False):
+def write_xmf_file(outfile, bdir="./",mode="volume", verbose: bool = False, filter=None):
     """
     Writes an XMF (eXtensible Model Format) file that references a collection of HDF5 files.
     Parameters:
@@ -347,7 +385,10 @@ def write_xmf_file(outfile, bdir="./",mode="volume", verbose: bool = False):
     None
     """
     outfile = os.path.abspath(outfile)
-    flist = glob.glob(os.path.join(bdir, "*.h5"))
+    if filter: 
+        flist = glob.glob(os.path.join(bdir, filter))
+    else:
+        flist = glob.glob(os.path.join(bdir, "*.h5"))
     grouped = group_files__kind_iteration(flist)
     iterations = sorted(grouped.keys())
     kinds_per_iter = {it: list(grouped[it].keys()) for it in iterations}
@@ -362,16 +403,16 @@ def write_xmf_file(outfile, bdir="./",mode="volume", verbose: bool = False):
         print("Kinds per iteration:", kinds_per_iter)
         print("Use spatial collection:", use_spatial_collection)
     
-    if mode == "volume" or (mode=="auto" and not use_spatial_collection):
+    if mode == "temporal" or (mode=="auto" and not use_spatial_collection):
         grids = []
         for it in iterations:
-            if 'vol' in kinds_per_iter[it]:
-                grids.append(construct_grid(grouped[it]['vol']))
-            else:
-                print(f"WARNING no volume output for iter {it}")
+            if len(grouped[it].keys()) > 1:
+                raise ValueError("Forced mode temporal but multiple outputs present.")
+            key = list(grouped[it].keys())[0]
+            grids.append(construct_grid(grouped[it][key]))
         with open(outfile,"w") as fout:
             fout.write(write_xmf_file_header({"name":"collection", "grids":grids}))
-    elif mode == "plane" or (mode=="auto" and use_spatial_collection):
+    elif mode == "spatial" or (mode=="auto" and use_spatial_collection):
         colls = [] 
         for it in iterations:
             grids = []
