@@ -136,6 +136,66 @@ def write_xmf_grid(iteration,time,points_dims,cells_dims,cells_type,h5name,attrs
             output += write_xmf_symm_tensor_attribute(attr["name"],attr["staggering"],attr["dimensions"],attr["data_type"],h5name)
     return output + "</Grid>\n"
 
+def write_xmf_point_grid(iteration, time, points_dims, h5name, attrs,
+                         use_polyvertex=True):
+    """
+    Generates an XMF grid for point-only data (e.g., a spherical surface 
+    sampled at points with nodal values). No cell connectivity is required.
+
+    Parameters:
+        iteration (int): Iteration index for the grid name.
+        time (float): Physical time associated with this output.
+        points_dims (tuple): (num_points, num_coordinates), usually (N, 3).
+        h5name (str): Name of the HDF5 file containing the datasets.
+        attrs (list): Attribute dictionaries with keys:
+            - "name": attribute name (str)
+            - "dtype": "Scalar", "Vector", or other
+            - "staggering": typically "Node"
+            - "dimensions": tuple defining the attribute size
+            - "data_type": underlying type, e.g. "Float"
+        use_polyvertex (bool): If True, write <Topology Type="Polyvertex">.
+                               If False, omit Topology entirely.
+
+    Returns:
+        str: An XMF string representing a point-only grid.
+    """
+
+    # Header + Geometry
+    output = f'''<Grid Name="PointGrid_{iteration}" GridType="Uniform">
+    <Time Value="{time}"/>
+    <Geometry Type="XYZ">
+        <DataItem DataType="Float" Dimensions="{points_dims[0]} {points_dims[1]}"
+                  Format="HDF" Precision="8">{h5name}:/Points</DataItem>
+    </Geometry>
+    '''
+
+    # Optional Polyvertex topology (safe for all XDMF readers)
+    if use_polyvertex:
+        output += f'''    <Topology Type="Polyvertex" Dimensions="{points_dims[0]}"/>'''
+
+    # Attributes
+    for attr in attrs:
+        if attr["dtype"] == "Scalar":
+            output += write_xmf_scalar_attribute(
+                attr["name"], attr["staggering"], attr["dimensions"],
+                attr["data_type"], h5name
+            )
+        elif attr["dtype"] == "Vector":
+            output += write_xmf_vector_attribute(
+                attr["name"], attr["staggering"], attr["dimensions"],
+                attr["data_type"], h5name
+            )
+        else:
+            output += write_xmf_symm_tensor_attribute(
+                attr["name"], attr["staggering"], attr["dimensions"],
+                attr["data_type"], h5name
+            )
+
+    output += "</Grid>\n"
+    return output
+
+
+
 def write_xmf_grid_no_time(name,points_dims,cells_dims,cells_type,h5name,attrs):
     """
     Generates an XMF (eXtensible Model Format) grid definition string for a given iteration and time step.
@@ -215,6 +275,27 @@ def write_xmf_temporal_collection(name, collections):
         output += write_xmf_spatial_collection(coll['iteration'],coll['time'],coll['grids'])
     return output + "</Grid>\n"
 
+def write_xmf_temporal_collection_spheres(name, grids):
+    """
+    Generates an XMF (eXtensible Model Format) spatial collection string for a given set of grids.
+    Parameters:
+    name (str): The name of the XMF collection.
+    grids (list of dict): A list of dictionaries, each representing a grid. Each dictionary should contain the following keys:
+        - "iteration" (int): The iteration number of the grid.
+        - "time" (float): The time value associated with the grid.
+        - "points_dims" (tuple of int): The dimensions of the points in the grid.
+        - "cells_dims" (tuple of int): The dimensions of the cells in the grid.
+        - "cells_type" (str): The type of cells in the grid.
+        - "h5name" (str): The name of the HDF5 file associated with the grid.
+        - "attrs" (dict): A dictionary of attributes for the grid.
+    Returns:
+    str: An XMF collection string representing the provided grids.
+    """
+    output = '''<Grid CollectionType="Temporal" GridType="Collection" Name="{}">\n'''.format(name)
+    for grid in grids:
+        output += write_xmf_grid(grid["iteration"],grid["time"],grid["points_dims"],grid["cells_dims"],grid["cells_type"],grid["h5name"],grid["attrs"])
+    return output + "</Grid>\n"
+
 def write_xmf_collection(name,grids):
     """
     Generates an XMF (eXtensible Model Format) collection string for a given set of grids.
@@ -236,7 +317,7 @@ def write_xmf_collection(name,grids):
         output += write_xmf_grid(grid["iteration"],grid["time"],grid["points_dims"],grid["cells_dims"],grid["cells_type"],grid["h5name"],grid["attrs"])
     return output + "</Grid>\n"
 
-def write_xmf_file_header(collection):
+def write_xmf_file_header(collection,spheres=False):
     """
     Generates the header for an XMF (eXtensible Model Format) file.
     Parameters:
@@ -250,7 +331,8 @@ def write_xmf_file_header(collection):
     output = '''<?xml version="1.0" encoding="utf-8"?>
     <Xdmf xmlns:xi="http://www.w3.org/2001/XInclude" Version="3.0">
     <Domain>'''
-    output += write_xmf_collection(collection["name"],collection["grids"])
+    if spheres: output += write_xmf_temporal_collection_spheres(collection["name"], collection["grids"])
+    else: output += write_xmf_collection(collection["name"],collection["grids"])
     return output + '''</Domain>
     </Xdmf>\n'''
 
@@ -273,7 +355,7 @@ def write_xmf_file_header_spatial_collection(collection):
     </Xdmf>\n'''
 
 
-def collect_hdf5_attributes(fname):
+def collect_hdf5_attributes(fname, has_cells=True):
     """
     Collects attributes from an HDF5 file, including dataset type and precision.
     
@@ -301,12 +383,14 @@ def collect_hdf5_attributes(fname):
     var_dims = []
     
     with h5py.File(fname, "r") as f:
-        cell_dims = f["Cells"].shape
+        if has_cells: 
+            cell_dims = f["Cells"].shape
+            topology = f["Cells"].attrs["CellTopology"]
         point_dims = f["Points"].shape
 
         time = f.attrs["Time"]
         iteration = f.attrs["Iteration"]
-        topology = f["Cells"].attrs["CellTopology"]
+        
 
         for vname in f.keys():
             if vname in ("Cells", "Points"):
@@ -328,9 +412,11 @@ def collect_hdf5_attributes(fname):
             vdatatypes.append(ds.dtype)
             
             vnames.append(vname)
-    
-    return (vnames, vtypes, vstags, vdatatypes,
-            cell_dims, point_dims, var_dims, time, iteration, topology)
+    if has_cells:
+        return (vnames, vtypes, vstags, vdatatypes,
+                cell_dims, point_dims, var_dims, time, iteration, topology)
+    else:
+        return (vnames, vtypes, vstags, vdatatypes, point_dims, var_dims, time, iteration)
 
 
 def find_iter_file(bdir,iteration):
@@ -372,6 +458,15 @@ def construct_grid(f, name="volume_grid"):
     for i,vname in enumerate(vnames):
         attrs.append({"name": vname, "dtype": vtypes[i], "data_type": vdtype[i], "dimensions": var_dims[i], "staggering": vstags[i]})
     return {"name": name, "iteration": iteration, "time": time, "points_dims": points_dims, "cells_dims": cell_dims, "h5name": ff, "cells_type": topology, "attrs": attrs}
+
+def construct_spherical_grid(f, name="sphere"):
+    ff = os.path.abspath(f)
+    vnames,vtypes,vstags,vdtype,points_dims,var_dims,time,iteration = collect_hdf5_attributes(ff,False)
+    attrs = []
+    for i,vname in enumerate(vnames):
+        attrs.append({"name": vname, "dtype": vtypes[i], "data_type": vdtype[i], "dimensions": var_dims[i], "staggering": vstags[i]})
+    return {"name": name, "iteration": iteration, "time": time, "points_dims": points_dims, "h5name": ff, "attrs": attrs}
+
 
 def write_xmf_file(outfile, bdir="./",mode="volume", verbose: bool = False, filter=None):
     """
@@ -422,5 +517,12 @@ def write_xmf_file(outfile, bdir="./",mode="volume", verbose: bool = False, filt
             colls.append({'iteration': it, 'time': time, 'grids': grids})
         with open(outfile,"w") as fout:
             fout.write(write_xmf_file_header_spatial_collection({"name":"collection", "collections":colls}))
-    
+    elif mode == "spherical":
+        grids = [] 
+        for it in iterations:
+            key = list(grouped[it].keys())[0]
+            grids.append(construct_spherical_grid(grouped[it][key]))
+        with open(outfile,"w") as fout:
+            fout.write(write_xmf_file_header({"name":"collection", "grids":grids}, True))
     return 
+

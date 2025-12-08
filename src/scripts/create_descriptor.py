@@ -18,8 +18,8 @@ def main():
     parser.add_argument('output_file', type=str, help='Output xmf file.')
     parser.add_argument('--mode', 
                         type=str, default='auto', 
-                        choices=['auto', 'temporal', 'spatial'],  # only allow these values
-                        help="Can be 'auto' 'temporal' or 'spatial' depending on the kind of output processed.")
+                        choices=['auto', 'temporal', 'spatial', 'spherical'],  # only allow these values
+                        help="Can be 'auto' 'temporal', 'spatial' or 'spherical' depending on the kind of output processed.")
     parser.add_argument('--verbose', action='store_true', default=False, help='Print verbose output.')
     parser.add_argument('--filter', type=str, default="*.h5", help='Filter files in directory.')
     args = parser.parse_args()
