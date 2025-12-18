@@ -293,7 +293,7 @@ def write_xmf_temporal_collection_spheres(name, grids):
     """
     output = '''<Grid CollectionType="Temporal" GridType="Collection" Name="{}">\n'''.format(name)
     for grid in grids:
-        output += write_xmf_grid(grid["iteration"],grid["time"],grid["points_dims"],grid["cells_dims"],grid["cells_type"],grid["h5name"],grid["attrs"])
+        output += write_xmf_point_grid(grid["iteration"],grid["time"],grid["points_dims"],grid["h5name"],grid["attrs"])
     return output + "</Grid>\n"
 
 def write_xmf_collection(name,grids):
