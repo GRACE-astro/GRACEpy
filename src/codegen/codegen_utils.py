@@ -17,7 +17,7 @@ class MyPrinter(C99CodePrinter):
             if exp_val == 0:
                 return "1"
             if exp_val == 1:
-                return self._print(base)
+                return "("+self._print(base)+")"
             # Emit base*base*base...
             if exp.is_nonnegative: return "("+ "*".join(["("+self._print(base)+")"] * exp_val) + ")"
             else: return f"1/({self._print(base**abs(exp))})"
@@ -77,113 +77,203 @@ def der_vec(vec,name):
         out.append(_out)
     return out
 
-def print_matrix(expr,printer,outputs=["out"],mat_name="out",print_as_twod=False):
-    lines = []         
-    # Determine matrix shape
+def emit_matrix_assignments(expr, printer, name, layout="flat", enforce_symmetry=True):
     rows, cols = expr.shape
+    lines = []
 
-    if len(outputs)==1:
-        if rows == 1 or cols == 1:
-            # --- 1D vector ---
-            n = max(rows, cols)
-            for i in range(n):
-                lines.append(f"{mat_name}[{i}] = {printer.doprint(expr[i])};")
+    is_vector = (rows == 1 or cols == 1)
+    is_symmetric = bool(expr.is_symmetric()) if enforce_symmetry else False
 
+    voigt_map = [(i,j) for i in range(rows) for j in range(i, cols)]
+
+    if is_vector:
+        n = max(rows, cols)
+        for i in range(n):
+            idx = i if layout == "flat" else f"{i}"
+            lines.append(f"(*{name})[{idx}] = {printer.doprint(expr[i])};")
+        return lines
+
+    if is_symmetric:
+        if layout == "flat":
+            for idx, (i,j) in enumerate(voigt_map):
+                val = printer.doprint(expr[i, j])
+                lines.append(f"(*{name})[{idx}] = {val};")
         else:
-            if print_as_twod:
-                if expr.is_symmetric() is True:
-                    for i in range(rows):
-                        for j in range(rows):
-                            if i == j: lines.append(f"{mat_name}[{i}][{j}] = {printer.doprint(expr[i,j])};")
-                            else: lines.append(f"{mat_name}[{i}][{j}] = {mat_name}[{j}][{i}] = {printer.doprint(expr[i,j])};")
-                else: 
-                    for i in range(rows):
-                        for j in range(cols):
-                            lines.append(f"{mat_name}[{i}][{j}] = {printer.doprint(expr[i,j])};")
-            else:
-                if expr.is_symmetric() is True:
-                    ipos=0
-                    for i in range(rows):
-                        for j in range(i,rows):
-                            lines.append(f"{mat_name}[{ipos}] = {printer.doprint(expr[i,j])};")
-                            ipos+=1
-                else: 
-                    for i in range(rows):
-                        for j in range(cols):
-                            lines.append(f"{mat_name}[{j + cols * i}] = {printer.doprint(expr[i,j])};")
-    else: 
-        if rows == 1 or cols == 1:
-            n = max(rows,cols)
-            assert len(outputs) == n
+            for i in range(rows):
+                for j in range(i, cols):
+                    val = printer.doprint(expr[i, j])
+                    if i == j:
+                        lines.append(f"(*{name})[{i}][{j}] = {val};")
+                    else:
+                        lines.append(
+                            f"(*{name})[{i}][{j}] = (*{name})[{j}][{i}] = {val};"
+                        )
+    else:
+        for i in range(rows):
+            for j in range(cols):
+                val = printer.doprint(expr[i, j])
+                if layout == "flat":
+                    idx = j + cols*i
+                    lines.append(f"(*{name})[{idx}] = {val};")
+                else:
+                    lines.append(f"(*{name})[{i}][{j}] = {val};")
 
-            for i in range(n):
-                lines.append(f"*{outputs[i]} = {printer.doprint(expr[i])};")
-        else:
-            raise ValueError("If more than one output is passed, expression must be a flat list")
-    return '\n\t'.join(lines)
+    return lines
 
+def emit_output(expr, printer, out_name, layout="flat"):
+    if isinstance(expr, sp.Matrix):
+        return emit_matrix_assignments(expr, printer, out_name, layout)
+    else:
+        return [f"*{out_name} = {printer.doprint(expr)};"]
 
-def make_body(exprs,printer,outputs=["out"],print_as_twod=False):
-    printer = MyPrinter()
-    subexprs, simplified_exprs = cse(exprs, optimizations='basic')
-    
-    optimized_sub = [(s[0], optimize(s[1], optims_c99)) for s in subexprs]
+def make_body(exprs, printer, outputs, layout="flat", cse_order="canonical" ,cse_optims='basic'):
+    subexprs, reduced = cse(exprs, optimizations=cse_optims, order=cse_order)
 
     lines = []
-    for var, sub_expr in optimized_sub:
-        lines.append(f'double {printer.doprint(Assignment(var, sub_expr))}')
 
-    body = '\t' + '\n\t'.join(lines) + '\n\t'
+    # temporaries
+    for var, sub in subexprs:
+        if ( cse_optims == 'basic' ): sub = optimize(sub, optims_c99)
+        lines.append(f"double {printer.doprint(Assignment(var, sub))}")
 
-    # now the output lines 
-    if len(outputs) == len(simplified_exprs):
-        for e,oo in zip(simplified_exprs,outputs):
-            if isinstance(e, sp.Matrix):
-                body += print_matrix(e,printer,["out"],oo,print_as_twod) + '\n\t' 
-            else:
-                body += f"*{oo} = " + printer.doprint(e) + ';\n\t'
+    # outputs
+    if len(outputs) == len(reduced):
+        for expr, name in zip(reduced, outputs):
+            lines.extend(emit_output(expr, printer, name, layout))
     else:
-        for e in simplified_exprs:
-            if isinstance(e, sp.Matrix):
-                body += print_matrix(e,printer,outputs,"out",print_as_twod) + '\n\t' 
-            else:
-                body += f"*out = " + printer.doprint(e) + ';\n\t'
-    return body 
+        for expr in reduced:
+            lines.extend(emit_output(expr, printer, outputs[0], layout))
+
+    return "\t" + "\n\t".join(lines)
+
+def format_arg(name, abi):
+    ctype, shape = abi
+    if shape is None:
+        return f"{ctype} {name}"
+    else:
+        dims = "".join(f"[{n}]" for n in shape)
+        return f"const {ctype} {name}{dims}"
+
+def format_output(name,abi):
+    ctype, shape = abi
+    if shape is None:
+        return f"{ctype} * __restrict__ {name}"
+    else:
+        dims = "".join(f"[{n}]" for n in shape)
+        return f"{ctype} (*{name}){dims}"
 
 def base_name(s):
     name = str(s)
     if "[" in name:
         return name.split("[", 1)[0]  # take substring before first '['
+    elif "(" in name:
+        return name.split("(", 1)[0]  # take substring before first '['
     return name
 
-def make_signature(exprs, ABI, name="compute_fluxes", outputs=["out"]):
-    # collect all symbols used in all exprs
-    all_symbols = set()
+from collections import OrderedDict
+
+def generate_signature(
+    name,
+    exprs,
+    additional_inputs,
+    outputs,
+    ABI,
+    outputs_ABI,
+    format_arg,
+    format_output,
+    template_args=None,
+    global_constants=[]
+):
+    """
+    Generate a stable function signature with arguments ordered
+    according to ABI and outputs_ABI.
+    """
+
+    # ----------------------------------------------------------------------
+    # 1. Build ABI order maps for fast integer ordering
+    # ----------------------------------------------------------------------
+    ABI_order_map = {k: i for i, k in enumerate(ABI.keys())}
+    outputs_order_map = {k: i for i, k in enumerate(outputs_ABI.keys())}
+
+    # ----------------------------------------------------------------------
+    # 2. Collect all required argument names (inputs + additional inputs)
+    # ----------------------------------------------------------------------
+    input_syms = set()
+
+    # Symbols from expression free symbols
     for e in exprs:
-        all_symbols.update(e.free_symbols)
+        for s in e.free_symbols:
+            n = base_name(s)
+            input_syms.add(n)
 
-    # sort for deterministic ordering
-    all_symbols = sorted(all_symbols, key=lambda s: s.name)
+    # Manually declared additional inputs
+    for s in additional_inputs:
+        n = base_name(s)
+        input_syms.add(n)
 
-    args = list()
-    seen = list() 
-    for s in all_symbols:
-        n = base_name(s.name) 
-        if n in ABI and not ( n in seen ):
-            if (ABI[n].contains("[")):
-                pass
-            else:
-                args.append(ABI[n] + f" {n}")
-            seen.append(n)
-        elif not n in seen: raise ValueError(f"Symbol {n} not found in ABI")
-    for out_s in outputs:
-        args.append(f"double* __restrict__ {out_s}")
+    # Outputs must remain in their own ordered class
+    output_syms = [base_name(o) for o in outputs]
 
-    arg_str = ",\n\t".join(args)
-    fsign = "static void KOKKOS_INLINE_FUNCTION\n"
-    return f"{fsign}{name}(" + "\n\t" + f"{arg_str}" "\n)"
+    # Remove outputs from input list (outputs appear separately)
+    input_syms = [s for s in input_syms if s not in output_syms]
 
-def make_function(exprs, printer, name, ABI, outputs=["out"],print_as_twod=False): 
-    head = make_signature(exprs, ABI, name, outputs) 
-    body = make_body(exprs,printer,outputs,print_as_twod)
-    return head + "\n{\n" + body + "\n}\n"
+    # ----------------------------------------------------------------------
+    # 3. ABI-sorted ordering
+    # ----------------------------------------------------------------------
+    # Inputs: sorted by ABI order, falling back to alphabetical
+    def input_key(n):
+        if n in ABI_order_map:
+            return (0, ABI_order_map[n])   # primary: ABI order
+        return (1, n)                      # secondary: alphabetical fallback
+
+    input_syms_sorted = sorted(input_syms, key=input_key)
+
+    # Outputs: strictly ABI order
+    def output_key(n):
+        if n not in outputs_order_map:
+            raise ValueError(f"Output symbol {n} missing from outputs_ABI")
+        return outputs_order_map[n]
+
+    output_syms_sorted = sorted(output_syms, key=output_key)
+
+    # ----------------------------------------------------------------------
+    # 4. Format arguments
+    # ----------------------------------------------------------------------
+    args = []
+
+    # Inputs
+    for n in input_syms_sorted:
+        if n not in ABI and n not in global_constants:
+            raise ValueError(f"Symbol {n} missing from ABI")
+        args.append(format_arg(n, ABI[n]))
+
+    # Outputs
+    for o in output_syms_sorted:
+        args.append(format_output(o, outputs_ABI[o]))
+
+    # ----------------------------------------------------------------------
+    # 5. Build final signature string
+    # ----------------------------------------------------------------------
+    if template_args is None:
+        sig = (
+            "static void KOKKOS_INLINE_FUNCTION\n"
+            f"{name}(\n\t" + ",\n\t".join(args) + "\n)"
+        )
+    else:
+        templates = [f"{t_type} {t_name}" for (t_type, t_name) in template_args]
+        sig = (
+            "template< " + ", ".join(templates) + " >\n"
+            "static void KOKKOS_INLINE_FUNCTION\n"
+            f"{name}(\n\t" + ",\n\t".join(args) + "\n)"
+        )
+
+    return sig
+
+
+def make_function(exprs, printer, name, ABI, outputs, outputs_ABI, layout="flat", additional_inputs=[], cse_order='canonical', cse_optims='basic', template_args=None, global_constants=[]):
+    sig = generate_signature(name,exprs,additional_inputs,outputs,ABI,outputs_ABI,format_arg,format_output,template_args,global_constants)
+
+    body = make_body(exprs, printer, outputs, layout, cse_order, cse_optims)
+
+    return sig + "\n{\n" + body + "\n}\n"
+
