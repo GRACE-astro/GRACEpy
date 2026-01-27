@@ -77,7 +77,7 @@ def der_vec(vec,name):
         out.append(_out)
     return out
 
-def emit_matrix_assignments(expr, printer, name, layout="flat", enforce_symmetry=True):
+def emit_matrix_assignments(expr, printer, name, layout="flat", enforce_symmetry=True, addto=False):
     rows, cols = expr.shape
     lines = []
 
@@ -90,21 +90,31 @@ def emit_matrix_assignments(expr, printer, name, layout="flat", enforce_symmetry
         n = max(rows, cols)
         for i in range(n):
             idx = i if layout == "flat" else f"{i}"
-            lines.append(f"(*{name})[{idx}] = {printer.doprint(expr[i])};")
+            if addto:
+                lines.append(f"(*{name})[{idx}] += {printer.doprint(expr[i])};")
+            else:
+                lines.append(f"(*{name})[{idx}] = {printer.doprint(expr[i])};")
         return lines
 
     if is_symmetric:
         if layout == "flat":
             for idx, (i,j) in enumerate(voigt_map):
                 val = printer.doprint(expr[i, j])
-                lines.append(f"(*{name})[{idx}] = {val};")
+                if addto:
+                    lines.append(f"(*{name})[{idx}] += {val};")
+                else:
+                    lines.append(f"(*{name})[{idx}] = {val};")
         else:
             for i in range(rows):
                 for j in range(i, cols):
                     val = printer.doprint(expr[i, j])
                     if i == j:
-                        lines.append(f"(*{name})[{i}][{j}] = {val};")
+                        if addto:
+                            lines.append(f"(*{name})[{i}][{j}] += {val};")
+                        else:
+                            lines.append(f"(*{name})[{i}][{j}] = {val};")
                     else:
+                        if addto: raise ValueError("Cannot add to output in extended layout")
                         lines.append(
                             f"(*{name})[{i}][{j}] = (*{name})[{j}][{i}] = {val};"
                         )
@@ -114,20 +124,29 @@ def emit_matrix_assignments(expr, printer, name, layout="flat", enforce_symmetry
                 val = printer.doprint(expr[i, j])
                 if layout == "flat":
                     idx = j + cols*i
-                    lines.append(f"(*{name})[{idx}] = {val};")
+                    if addto:
+                        lines.append(f"(*{name})[{idx}] += {val};")
+                    else:
+                        lines.append(f"(*{name})[{idx}] = {val};")
                 else:
-                    lines.append(f"(*{name})[{i}][{j}] = {val};")
+                    if addto:
+                        lines.append(f"(*{name})[{i}][{j}] += {val};")
+                    else:
+                        lines.append(f"(*{name})[{i}][{j}] = {val};")
 
     return lines
 
-def emit_output(expr, printer, out_name, layout="flat"):
+def emit_output(expr, printer, out_name, layout="flat", addto=False):
     if isinstance(expr, sp.Matrix):
-        return emit_matrix_assignments(expr, printer, out_name, layout)
+        return emit_matrix_assignments(expr, printer, out_name, layout, addto=addto)
     else:
-        return [f"*{out_name} = {printer.doprint(expr)};"]
+        if addto:
+            return [f"*{out_name} += {printer.doprint(expr)};"]
+        else:
+            return [f"*{out_name} = {printer.doprint(expr)};"]
 
-def make_body(exprs, printer, outputs, layout="flat", cse_order="canonical" ,cse_optims='basic'):
-    subexprs, reduced = cse(exprs, optimizations=cse_optims, order=cse_order)
+def make_body(exprs, printer, outputs, layout="flat", cse_order="canonical" ,cse_optims='basic', cse_ignore=(), addto=False):
+    subexprs, reduced = cse(exprs, optimizations=cse_optims, order=cse_order, ignore=cse_ignore)
 
     lines = []
 
@@ -139,10 +158,10 @@ def make_body(exprs, printer, outputs, layout="flat", cse_order="canonical" ,cse
     # outputs
     if len(outputs) == len(reduced):
         for expr, name in zip(reduced, outputs):
-            lines.extend(emit_output(expr, printer, name, layout))
+            lines.extend(emit_output(expr, printer, name, layout, addto))
     else:
         for expr in reduced:
-            lines.extend(emit_output(expr, printer, outputs[0], layout))
+            lines.extend(emit_output(expr, printer, outputs[0], layout, addto))
 
     return "\t" + "\n\t".join(lines)
 
@@ -270,10 +289,10 @@ def generate_signature(
     return sig
 
 
-def make_function(exprs, printer, name, ABI, outputs, outputs_ABI, layout="flat", additional_inputs=[], cse_order='canonical', cse_optims='basic', template_args=None, global_constants=[]):
+def make_function(exprs, printer, name, ABI, outputs, outputs_ABI, layout="flat", additional_inputs=[], cse_order='canonical', cse_optims='basic', template_args=None, global_constants=[], cse_ignore=(), add_to_output=False):
     sig = generate_signature(name,exprs,additional_inputs,outputs,ABI,outputs_ABI,format_arg,format_output,template_args,global_constants)
 
-    body = make_body(exprs, printer, outputs, layout, cse_order, cse_optims)
+    body = make_body(exprs, printer, outputs, layout, cse_order, cse_optims, cse_ignore, add_to_output)
 
     return sig + "\n{\n" + body + "\n}\n"
 
