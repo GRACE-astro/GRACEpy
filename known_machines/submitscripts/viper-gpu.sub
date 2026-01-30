@@ -1,0 +1,28 @@
+#!/bin/bash -l
+# Standard output and error:
+#SBATCH -o ./job.out.%j
+#SBATCH -e ./job.err.%j
+# Initial working directory:
+#SBATCH -D ./
+# Job name
+#SBATCH -J @JOBNAME@
+#SBATCH -p @QUEUE@
+#SBATCH --nodes=@N_NODES@
+#SBATCH --constraint="apu"   
+#SBATCH --gres=gpu:@GPUS_PER_NODE@
+#SBATCH --ntasks-per-node=@TASKS_PER_NODE@
+#SBATCH --cpus-per-task=@CPUS_PER_TASK@ 
+#SBATCH --mem=@MEM@
+#SBATCH --mail-type=@MAIL_WHEN@
+#SBATCH --mail-user=@USER_MAIL@
+#SBATCH --time=@WALLTIME@
+
+module purge
+source @ENV_FILE@
+
+export HSA_XNACK=1
+
+export OMP_NUM_THREADS=@CPUS_PER_TASK@
+
+srun ./grace --grace-parfile @PARAMETER_FILE@
+
