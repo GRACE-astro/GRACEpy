@@ -14,7 +14,7 @@ class simpilot:
     
     def __init__(self):
         
-        self._bdir = os.path.join(self.__get_path_raise_error("SIMPLOT_BASEDIR"), ".simpilot")
+        self._bdir = os.path.join(self.__get_path_raise_error("SIMPILOT_BASEDIR"), ".simpilot")
 
         self._grace_bdir = self.__get_path_raise_error("GRACE_HOME")
 
@@ -63,27 +63,28 @@ class simpilot:
         if need_setup:
             # Setup 
             self._setup_new_user()
-        else:
-            # If configuration is there, we parse it 
-            self._parse_config() 
+        # If configuration is there, we parse it 
+        self._parse_config() 
 
-    def create_new_simulation(self,simname, simpath, _machine, executable, parameter_file):
+    def create_new_simulation(self,simname, simpath, machine_name, executable, parameter_file):
 
         if simpath is None:
             simpath = os.path.join(self._user_settings["simpath"], simname)
-        if _machine is None:
+        if machine_name is None:
             _machine = machine(self._default_machine)
+        else:
+            _machine = machine(machine_name)
         if executable is None:
             raise ValueError("Invalid executable specified when creating a simulation")
         if parameter_file is None or (not os.path.isfile(parameter_file)):
             raise ValueError("Invalid parameter file specified when creating a simulation")
         
         submitscript = os.path.join(self._bdir,"submitscripts",_machine.submit_template)
-        env_file = os.path.join(self._bdir,"envfiles",_machine.env_file)
+        env_file = os.path.join(self._bdir,"env_files",_machine.env_file)
 
         sim = simulation(
             simname,simpath,_machine,
-            submitscript,env_file,
+            env_file,submitscript,
             executable, parameter_file
         )
         # Write a descriptor of this simulation
@@ -133,7 +134,7 @@ class simpilot:
         with open(machines_file,"r") as f:
             machines = yaml.safe_load(f)
         self._known_machines = machines["known"]
-        self._default_machine = machines["default"]
+        self._default_machine = os.path.join(self._bdir,"machines",machines["default"]+".yaml")
 
         settings_file =  os.path.join(self._bdir,"user_settings.yaml")
         with open(settings_file,"r") as f:
@@ -159,7 +160,7 @@ class simpilot:
         for m in known_machines:
             srcfile = os.path.join(mfiles_path,m+".yaml")
             dstfile = os.path.join(machines_dir,m+".yaml")
-            shutil.copyfile(srcfile,dstfile)
+            shutil.copy(srcfile,dstfile)
 
         print(f"Auto-detected machines: {known_machines}")
 
@@ -198,10 +199,10 @@ class simpilot:
         subpath = os.path.join(self._bdir, "submitscripts")
         os.makedirs(subpath, exist_ok=True)
         sfiles_path = os.path.join(mfiles_path, "submitscripts")
-        for f in Path(sfiles_path).glob("*.yaml"):
+        for f in Path(sfiles_path).glob("*.sub"):
             if f.is_file():
                 dstfile = os.path.join(subpath, f.name)
-                shutil.copyfile(f, dstfile)
+                shutil.copy(f, dstfile)
 
         subpath = os.path.join(self._bdir, "env_files")
         os.makedirs(subpath, exist_ok=True)
@@ -209,7 +210,8 @@ class simpilot:
         for f in Path(sfiles_path).glob("*.sh"):
             if f.is_file():
                 dstfile = os.path.join(subpath, f.name)
-                shutil.copyfile(f, dstfile)
+                shutil.copy(f, dstfile)
+
 
         print("Done with initial configuration.")
 
