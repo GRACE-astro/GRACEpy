@@ -14,6 +14,365 @@ import numpy as np
 import matplotlib.pyplot as plt
 import grace_tools.geometric_utils as gu
 
+class grace_xmf_reader_base:
+    """
+    Base class for reading XMF/HDF5 output from GRACE.
+
+    Provides core functionality for file handling, timestep management,
+    variable checking, and generic dataset probing/cutting. Does not
+    assume a specific spatial structure (2D or 3D).
+
+    Attributes:
+        reader (vtk.vtkXdmfReader): VTK XDMF reader object.
+        available_cell_vars_list (list): List of available cell variables.
+        available_point_vars_list (list): List of available point variables.
+        available_times_list (list): List of available timesteps.
+        __bounds (tuple): Bounds of the dataset.
+    """
+
+    def __init__(self, filename: str):
+        """
+        Construct the base reader and load file metadata.
+
+        Args:
+            filename (str): Path to the XDMF descriptor file.
+        """
+        self.reader = vtk.vtkXdmfReader()
+        self.set_file(filename)
+        self.update()
+        
+        output = self.get_output()
+        self.available_cell_vars_list = self._update_cell_vars_list() 
+        self.available_point_vars_list = self._update_point_vars_list()
+        
+        
+        self._get_bounds()
+        self.available_times_list = self.reader.GetOutputInformation(0).Get(
+            vtk.vtkStreamingDemandDrivenPipeline.TIME_STEPS()
+        )
+
+    # ---------------- File & Update Methods ----------------
+    def grid_bounds(self):
+        """Get the grid boundary coordinates."""
+        return self._bounds  
+    def set_file(self, filename: str):
+        """
+        Set the XMF file for the reader.
+
+        Args:
+            filename (str): Path to the XDMF descriptor file.
+        """
+        self.fname = filename
+        self.reader.SetFileName(filename)
+
+    def update(self):
+        """Update the reader pipeline."""
+        self.reader.Update()
+
+    def get_output(self):
+        """
+        Retrieve the current output of the reader.
+
+        Returns:
+            vtk.vtkDataSet: Current VTK output.
+        """
+        return self.reader.GetOutput()
+
+    # ---------------- Time Handling ----------------
+    def available_variables(self, vtype="cell"):
+        """Get available variables in output.
+
+        Args:
+            vtype (str, optional): Type of variables requested ("cell" or "point"). Defaults to "cell".
+        
+        Returns:
+            list of strings: List of available variables in output.
+        """
+        if vtype == "Cell" or vtype == "cell":
+            return self.available_cell_vars_list
+        elif vtype == "Point" or vtype == "point":
+            return self.available_point_vars_list
+        else:
+            raise ValueError(f"Unrecognized variable type {vtype}. Supported types are 'cell' or 'point'.")
+    
+    def available_times(self):
+        """
+        Get all available timesteps.
+
+        Returns:
+            list: Available timesteps in the dataset.
+        """
+        return self.available_times_list
+
+    def set_time_index(self, index):
+        """
+        Set the reader to a specific timestep by index.
+
+        Args:
+            index (int): Index in `available_times_list`.
+        """
+        self.reader.GetOutputInformation(0).Set(
+            vtk.vtkStreamingDemandDrivenPipeline.UPDATE_TIME_STEP,
+            self.available_times_list[index]
+        )
+        self.update()
+
+    def set_time(self, time):
+        """
+        Set the reader to a specific timestep by value.
+
+        If the exact timestep is not available, selects the closest one.
+
+        Args:
+            time (float): Requested timestep.
+        """
+        index = np.searchsorted(self.available_times_list, time)
+        if index >= len(self.available_times_list):
+            index = len(self.available_times_list) - 1
+        self.set_time_index(index)
+
+    # ---------------- Variable Checks ----------------
+    def __check_requested_var(self, varname, vartype="cell"):
+        """
+        Validate that a requested variable exists in the dataset.
+
+        Args:
+            varname (str): Name of the variable to check.
+            vartype (str): Type of variable ('cell' or 'point').
+
+        Raises:
+            ValueError: If variable is not found in the output.
+        """
+        if vartype == "cell" and varname not in self.available_cell_vars_list:
+            raise ValueError(f"Cell variable {varname} not found")
+        if vartype == "point" and varname not in self.available_point_vars_list:
+            raise ValueError(f"Point variable {varname} not found")
+
+    # ---------------- Utility Methods ----------------
+    def __get_cell_centers(self, grid):
+        """
+        Compute cell center coordinates of a VTK grid.
+
+        Args:
+            grid (vtk.vtkDataSet): Grid to compute cell centers from.
+
+        Returns:
+            vtk.vtkDataArray: Cell center coordinates.
+        """
+        cc = vtk.vtkCellCenters()
+        cc.SetInputData(grid)
+        cc.Update()
+        return cc.GetOutput().GetPoints().GetData()
+
+    def __probe_dataset(self, varname, probe_algo, grid=None, convert_to_numpy=True):
+        """
+        Probe a dataset along a specified geometry (line, points, etc.).
+
+        Args:
+            varname (str): Variable to extract.
+            probe_algo (vtk.vtkAlgorithm): VTK algorithm defining probe geometry.
+            grid (vtk.vtkDataSet, optional): Grid to probe. Defaults to current reader output.
+            convert_to_numpy (bool, optional): Convert results to NumPy arrays. Defaults to True.
+
+        Returns:
+            tuple: Coordinates and variable values (NumPy arrays if `convert_to_numpy=True`).
+        """
+        if grid is None:
+            grid = self.get_output()
+        probe_filter = vtk.vtkProbeFilter()
+        probe_filter.SetInputConnection(probe_algo.GetOutputPort())
+        probe_filter.SetSourceData(grid)
+        probe_filter.Update()
+        output = probe_filter.GetOutput()
+        vararray = output.GetPointData().GetArray(varname)
+        coords = output.GetPoints().GetData()
+        if convert_to_numpy:
+            return vtk_to_numpy(coords), vtk_to_numpy(vararray)[:]
+        return coords, vararray
+
+    def __cut_dataset(self, varname, cut_function, grid=None, convert_to_numpy=True, vartype="cell"):
+        """
+        Cut a dataset with a specified implicit function (plane, sphere, cylinder, cone).
+
+        Args:
+            varname (str): Variable to extract.
+            cut_function (vtk.vtkImplicitFunction): Cutting geometry.
+            grid (vtk.vtkDataSet, optional): Grid to cut. Defaults to current reader output.
+            convert_to_numpy (bool, optional): Convert results to NumPy arrays. Defaults to True.
+            vartype (str): Type of data ('cell' or 'point').
+
+        Returns:
+            tuple: Coordinates and variable values (NumPy arrays if `convert_to_numpy=True`). 
+                   Returns (None, None) if cutter produces no output.
+        """
+        if grid is None:
+            grid = self.get_output()
+        cutter = vtk.vtkCutter()
+        cutter.SetCutFunction(cut_function)
+        cutter.SetInputData(grid)
+        cutter.Update()
+        output = cutter.GetOutput()
+        if output.GetNumberOfCells() == 0:
+            print("WARNING: Cutter produced no output")
+            return None, None
+        
+        if vartype == "cell":
+            vararray = output.GetCellData().GetArray(varname)
+            coords = self.__get_cell_centers(output)
+        else:
+            vararray = output.GetPointData().GetArray(varname)
+            coords = output.GetPoints().GetData()
+        
+        if convert_to_numpy:
+            return vtk_to_numpy(coords), vtk_to_numpy(vararray)[:]
+        return coords, vararray
+
+
+class grace_xmf_reader_3D(grace_xmf_reader_base):
+    def get_var(self, varname, time=None, vartype="cell", convert_to_numpy=True):
+        if time is not None:
+            self.set_time(time)
+        output = self.get_output()
+        self.__check_requested_var(varname, vartype)
+        if vartype == "cell":
+            coords = self.__get_cell_centers(output)
+            vararray = output.GetCellData().GetArray(varname)
+        else:
+            coords = output.GetPoints().GetData()
+            vararray = output.GetPointData().GetArray(varname)
+        if convert_to_numpy:
+            return vtk_to_numpy(coords), vtk_to_numpy(vararray)[:]
+        return coords, vararray
+    
+    def _update_cell_vars_list(self):
+        output = self.reader.GetOutput() 
+        self.available_cell_vars_list = [
+            output.GetCellData().GetArrayName(i)
+            for i in range(output.GetCellData().GetNumberOfArrays())
+        ]
+    def _update_point_vars_list(self):
+        output = self.reader.GetOutput() 
+        self.available_cell_vars_list = [
+            output.GetPointData().GetArrayName(i)
+            for i in range(output.GetPointData().GetNumberOfArrays())
+        ]
+    def _get_bounds(self):
+        output = self.reader.GetOutput() 
+        return output.GetBounds() 
+        
+        
+
+class grace_xmf_reader_2D(grace_xmf_reader_base):
+    """
+    Reader for 2D GRACE outputs with spatial collections (multiple planes per timestep).
+
+    Overrides variable extraction to handle composite datasets.
+    """
+    def get_var(self, varname, time=None, vartype="cell", convert_to_numpy=True, plane_index=None):
+        """
+        Extract a variable at a specific time from a 2D dataset.
+
+        Handles spatial collections:
+            - If `plane_index` is None, returns a list of (coords, values) for all planes.
+            - If `plane_index` is specified, returns only that plane.
+
+        Args:
+            varname (str): Variable to extract.
+            time (float, optional): Timestep to extract. Defaults to current time.
+            vartype (str): 'cell' or 'point'. Defaults to 'cell'.
+            convert_to_numpy (bool): Return NumPy arrays. Defaults to True.
+            plane_index (int, optional): Index of the plane in spatial collection. Defaults to None.
+
+        Returns:
+            tuple or list of tuples: Each tuple contains coordinates and variable values.
+        """
+        if time is not None:
+            self.set_time(time)
+        self.__check_requested_var(varname, vartype)
+        
+        output = self.get_output()
+        output = self.reader.GetOutput()
+        if output.IsA("vtkCompositeDataSet"):  # handles MultiBlock, HierarchicalBox, etc.
+            self.available_cell_vars_list = []
+            self.available_point_vars_list = []
+            nblocks = output.GetNumberOfBlocks()
+            for i in range(nblocks):
+                block = output.GetBlock(i)
+                if block is None:
+                    continue
+                cell_data = block.GetCellData()
+                point_data = block.GetPointData()
+                self.available_cell_vars_list.extend(
+                    [cell_data.GetArrayName(j) for j in range(cell_data.GetNumberOfArrays())]
+                )
+                self.available_point_vars_list.extend(
+                    [point_data.GetArrayName(j) for j in range(point_data.GetNumberOfArrays())]
+                )
+            # remove duplicates
+            self.available_cell_vars_list = list(set(self.available_cell_vars_list))
+            self.available_point_vars_list = list(set(self.available_point_vars_list))
+        else:
+            # single grid
+            cell_data = output.GetCellData()
+            point_data = output.GetPointData()
+            self.available_cell_vars_list = [cell_data.GetArrayName(i) for i in range(cell_data.GetNumberOfArrays())]
+            self.available_point_vars_list = [point_data.GetArrayName(i) for i in range(point_data.GetNumberOfArrays())]
+            
+    def _update_cell_vars_list(self):
+        output = self.get_output()
+        vars_set = set()
+        if output.IsA("vtkCompositeDataSet"):
+            for i in range(output.GetNumberOfBlocks()):
+                block = output.GetBlock(i)
+                vars_set.update(
+                    block.GetCellData().GetArrayName(j)
+                    for j in range(block.GetCellData().GetNumberOfArrays())
+                )
+        else:
+            vars_set.update(
+                output.GetCellData().GetArrayName(j)
+                for j in range(output.GetCellData().GetNumberOfArrays())
+            )
+        self.available_cell_vars_list = list(vars_set)
+
+    def _update_point_vars_list(self):
+        output = self.get_output()
+        vars_set = set()
+        if output.IsA("vtkCompositeDataSet"):
+            for i in range(output.GetNumberOfBlocks()):
+                block = output.GetBlock(i)
+                vars_set.update(
+                    block.GetPointData().GetArrayName(j)
+                    for j in range(block.GetPointData().GetNumberOfArrays())
+                )
+        else:
+            vars_set.update(
+                output.GetPointData().GetArrayName(j)
+                for j in range(output.GetPointData().GetNumberOfArrays())
+            )
+        self.available_point_vars_list = list(vars_set)
+        
+    def _get_bounds(self):
+        output = self.reader.GetOutput()
+        if output.IsA("vtkCompositeDataSet"):
+            bounds = [np.inf, -np.inf, np.inf, -np.inf, np.inf, -np.inf]  # xmin, xmax, ymin, ymax, zmin, zmax
+            nblocks = output.GetNumberOfBlocks()
+            for i in range(nblocks):
+                block = output.GetBlock(i)
+                if block is None:
+                    continue
+                b = block.GetBounds()  # works because each block is a vtkDataSet
+                bounds[0] = min(bounds[0], b[0])
+                bounds[1] = max(bounds[1], b[1])
+                bounds[2] = min(bounds[2], b[2])
+                bounds[3] = max(bounds[3], b[3])
+                bounds[4] = min(bounds[4], b[4])
+                bounds[5] = max(bounds[5], b[5])
+        else:
+            bounds = output.GetBounds()
+
+
+
 class grace_xmf_reader:
     """
     Xmf descriptor file reader.
@@ -109,6 +468,14 @@ class grace_xmf_reader:
             if not (varname in self.available_cell_vars_list) and not (varname in self.available_point_vars_list):
                 raise ValueError(f"Requested variable {varname} not present in output.")
         return
+    
+    def __get_vartype(self, varname):
+        if varname in self.available_cell_vars_list:
+            return "cell"
+        elif varname in self.available_point_vars_list:
+            return "point"
+        else:
+            raise ValueError(f"Variable {var} is not present in simulation data.")    
     
     def __get_info(self,port=0):
         """
@@ -308,7 +675,7 @@ class grace_xmf_reader:
             np.array or vtk.vtkDataArray: The full variable output at specified time (codimension 0).
         """
         self.__check_vtype(vartype)
-        self.__check_requested_var(varname, vartype=vartype)
+        self.__check_requested_var(varname, vtype=vartype)
         if (time is None) and (not self.__is_at_timestep()) and (not override_no_timestep_selection):
             print("WARNING: Attempting to extract data from a reader"
                   " with no timestep selected. If you really want this, pass override_no_timestep_selection=True")
@@ -709,13 +1076,3 @@ class grace_xmf_reader:
             return (vtk_to_numpy(coords), vtk_to_numpy(vararray)[:])
         else:
             return (coords,vararray)
-        
-        
-    
-    
-        
-        
-
-    
-
-

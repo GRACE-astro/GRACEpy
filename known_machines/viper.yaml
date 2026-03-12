@@ -1,0 +1,11 @@
+name: "viper-gpu"
+scheduler: "SLURM"
+max_walltime: "24:00:00"
+backend: "HIP"
+mem_per_node: 11000
+cpu_per_node: 48
+gpu_per_node: 2
+queues: ["apu", "apudev"]
+default_queue: ["apu"]
+submission_script: "viper-gpu.sub"
+environment_file: "viper-gpu.sh"

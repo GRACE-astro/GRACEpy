@@ -25,7 +25,8 @@ setup(
         "tqdm",
         "vtk",
         "pyparsing",
-        "pyyaml"
+        "pyyaml",
+        "sympy"
     ],
     entry_points={  # Command-line tools
         "console_scripts": [
