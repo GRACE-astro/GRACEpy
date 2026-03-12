@@ -1,5 +1,6 @@
+src/analysis/constants.py
 ## Some useful constants
-
+import numpy as np 
 
 
 
@@ -26,6 +27,11 @@ G_pcMsunm1 = 4.3009172706e-3 # in parsec / Msun (km/s)ˆ2
 # Electron mass 
 me_MeV = 0.51099895069
 me_KeV = 510.99895069
+# Magnetic
+mu0 = 1.2566370614359173e-6 # Vacuum permeability
+eps0 = 1.0/(mu0*clight**2) 
+
+
 # conversions 
 
 # Length
@@ -45,6 +51,8 @@ nm_to_angstrom = 10
 Msun_to_cm = G_cgs * Msun_cgs / clight**2
 cm_to_Msun = 1./Msun_to_cm 
 Msun_to_pc = Msun_to_cm * cm_to_km * km_to_pc
+# B field
+CU_to_Gauss = (1.0/Msun_to_cm/np.sqrt(eps0*G_cgs/(clight**2))) / 1e09 ;
 
 # Time 
 hour_to_s = 60 * 60 
