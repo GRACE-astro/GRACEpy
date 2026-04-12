@@ -473,17 +473,23 @@ def write_xmf_file(outfile, bdir="./",mode="volume", verbose: bool = False, filt
     Writes an XMF (eXtensible Model Format) file that references a collection of HDF5 files.
     Parameters:
     outfile (str): The path to the output XMF file.
-    bdir (str, optional): The base directory containing the HDF5 files. Defaults to "./".
-    iterations (list or int, optional): A list of iteration numbers or a single iteration number to include in the XMF file. 
+    bdir (str or list): The base directory (or list of directories) containing
+        the HDF5 files. When a list is provided, files from all directories are
+        collected (e.g. for merging output across restart segments). Defaults to "./".
+    iterations (list or int, optional): A list of iteration numbers or a single iteration number to include in the XMF file.
                                         If None, all HDF5 files in the base directory are included. Defaults to None.
     Returns:
     None
     """
     outfile = os.path.abspath(outfile)
-    if filter: 
-        flist = glob.glob(os.path.join(bdir, filter))
-    else:
-        flist = glob.glob(os.path.join(bdir, "*.h5"))
+    if isinstance(bdir, str):
+        bdir = [bdir]
+    flist = []
+    for d in bdir:
+        if filter:
+            flist.extend(glob.glob(os.path.join(d, filter)))
+        else:
+            flist.extend(glob.glob(os.path.join(d, "*.h5")))
     grouped = group_files__kind_iteration(flist)
     iterations = sorted(grouped.keys())
     kinds_per_iter = {it: list(grouped[it].keys()) for it in iterations}

@@ -138,10 +138,10 @@ class eos_table():
         def interp_table_entry(lrho, ivar):
             var_i = CubicSpline(cold_table["logrho"], cold_table[ivar])
             return var_i(lrho)
-        new_table = {"logrho": lrho_new}
+        new_table = {"logrho": lrho_new, "energy_shift": cold_table["energy_shift"]}
 
         for var in cold_table.keys():
-            if var == "logrho": continue 
+            if var == "logrho" or var=="energy_shift": continue 
             new_table[var] = interp_table_entry(lrho_new, var)
         return new_table 
     
@@ -172,16 +172,17 @@ class eos_table():
     
     def _remove_photon_pressure(self, tab):
         uconv = CGS_UNIT_SYSTEM / GEOM_UNIT_SYSTEM
-
+        k_cgs = 1.3806e-16
         # T is stored as kB*T in MeV; convert to Kelvin for Stefan-Boltzmann
-        T_K = np.exp(tab["logtemp"]) / pc.k_cgs * pc.MeV_to_erg  # [K]
+        T_K = np.exp(tab["logtemp"]) / k_cgs * pc.MeV_to_erg  # [K]
 
         press_photon_cgs = (1.0 / 3.0) * pc.rad_cgs * T_K**4      # [dyn/cm²]
         press_photon     = press_photon_cgs * uconv.pressure        # [geom]
         e_photon         = 3.0 * press_photon                       # [geom]
 
         P_tab = np.exp(tab["logpress"])
-        e_tab = np.exp(tab["loge"])
+        eps_tab = np.exp(tab["logeps"]) - tab["energy_shift"]
+        e_tab = ( eps_tab + 1 ) * np.exp(tab["logrho"])
 
         # Guard: photon contribution must be sub-dominant
         bad_P = press_photon >= P_tab
@@ -195,20 +196,22 @@ class eos_table():
             e_photon     = np.minimum(e_photon,     e_tab * (1.0 - 1e-10))
 
         tab["logpress"] = np.log(P_tab - press_photon)
-        tab["loge"]     = np.log(e_tab - e_photon)
+        e_new = e_tab - e_photon
+        eps_new = e_new / np.exp(tab["logrho"]) - 1 
+        tab["logeps"]     = np.log(eps_new+tab["energy_shift"])
         return tab
 
 
-    def _extend_isothermal_low_density(self, cold_table, rho_min, npoints):
+    def _extend_isothermal_low_density(self, cold_table, rho_min, npoints, rho_junction):
 
         rho = np.exp(cold_table["logrho"])
         p   = np.exp(cold_table["logpress"])
         eps   = np.exp(cold_table["logeps"]) - cold_table["energy_shift"]
 
-
-        rho0 = rho[0]
-        p0   = p[0]
-        eps0 = eps[0]
+        idx_j = np.argmin(np.abs(rho-rho_junction))
+        rho0 = rho[idx_j]
+        p0   = p[idx_j]
+        eps0 = eps[idx_j]
 
         # Polytrope parameters matched at the table's lower boundary
         gamma_poly   = 4.0 / 3.0
@@ -229,8 +232,8 @@ class eos_table():
             spl = CubicSpline(cold_table["logrho"], cold_table[key])
             return spl(lrho)
 
-        poly_mask = lrho_new <  cold_table["logrho"][0]
-        tab_mask  = lrho_new >= cold_table["logrho"][0]
+        poly_mask = lrho_new <  np.log(rho0)
+        tab_mask  = lrho_new >= np.log(rho0)
         poly_lrho = lrho_new[poly_mask]
         tab_lrho  = lrho_new[tab_mask]
 
@@ -240,7 +243,7 @@ class eos_table():
         # Temperature and Ye
         new_table["logtemp"] = np.full_like(lrho_new, cold_table["logtemp"][0])
         new_table["ye"]      = np.zeros_like(lrho_new)
-        new_table["ye"][poly_mask] = cold_table["ye"][0]
+        new_table["ye"][poly_mask] = cold_table["ye"][idx_j]
         new_table["ye"][tab_mask]  = interp_table_entry(tab_lrho, "ye")
 
         # Pressure
@@ -252,7 +255,7 @@ class eos_table():
 
         # Energy density  — delta_eps shift applied ONLY to the polytropic branch
         new_table["logeps"] = np.zeros_like(lrho_new)
-        eps_poly = kappa_poly * poly_rho**(gamma_poly - 1.0) / (gamma_poly - 1.0) + delta_eps
+        eps_poly = kappa_poly * poly_rho**(gamma_poly - 1.0) / (gamma_poly - 1.0) - delta_eps
         new_table["logeps"][poly_mask] = np.log(eps_poly+new_table["energy_shift"])
         new_table["logeps"][tab_mask]  = interp_table_entry(tab_lrho, "logeps")
 
@@ -270,13 +273,13 @@ class eos_table():
 
         return new_table
     
-    def export_cold_table(self,filename,tab_format="GRACE", resample=-1, temperature=1.0e-15,attach_polytrope=False, remove_radiation=False):
+    def export_cold_table(self,filename,tab_format="GRACE", resample=-1, temperature=1.0e-15,attach_polytrope=False, remove_radiation=False, rho_junction=1e-11):
 
         table = self._construct_isothermal_table(temperature)
         if remove_radiation:
             table = self._remove_photon_pressure(table)
         if attach_polytrope:
-            table = self._extend_isothermal_low_density(table,1e-18,50 + len(table["logrho"]))
+            table = self._extend_isothermal_low_density(table,1e-18,50 + len(table["logrho"]),rho_junction)
 
         if resample>0: 
             table = self._resample(table,resample)

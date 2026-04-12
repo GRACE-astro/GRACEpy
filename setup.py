@@ -34,7 +34,11 @@ setup(
             "unpack_archive=scripts.unpack_archive:main",  
             "create_descriptor=scripts.create_descriptor:main",
             "grace_info=scripts.grace_info:main",
+<<<<<<< HEAD
             "simpilot=scripts.simpilot:main"
+=======
+            "export_scalars=scripts.export_scalars:main"
+>>>>>>> 617367b (Sanitize scalar data processing)
         ],
     },
 )
