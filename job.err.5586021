@@ -1,7 +1,0 @@
-slurmstepd: error: execve(): /viper/ptmp2/cmusolino/bns_0125/restart_0002/./grace: Permission denied
-slurmstepd: error: execve(): /viper/ptmp2/cmusolino/bns_0125/restart_0002/./grace: Permission denied
-slurmstepd: error: execve(): /viper/ptmp2/cmusolino/bns_0125/restart_0002/./grace: Permission denied
-slurmstepd: error: execve(): /viper/ptmp2/cmusolino/bns_0125/restart_0002/./grace: Permission denied
-srun: error: vipa1145: tasks 0-1: Exited with exit code 13
-srun: Terminating StepId=5586021.0
-srun: error: vipa1147: tasks 2-3: Exited with exit code 13

@@ -24,7 +24,7 @@ def fill_submit_template(template_file,output_file,replacements):
 
 class simulation:
 
-    def __init__(self, name, simdir, machine=None, submitscript=None, exe=None, parfile=None):
+    def __init__(self, name, simdir, machine=None, submitscript=None, exe=None, parfile=None, env=None):
         self._name = name
         self._dir = simdir
         self._cdir = os.path.join(self._dir, "config")
@@ -32,6 +32,7 @@ class simulation:
         self._exe = exe
         self._pfile = parfile
         self._subscript = submitscript
+        self._env = env
 
         if not os.path.isdir(simdir):
             self._init_directory_structure()
@@ -52,6 +53,10 @@ class simulation:
             _ = self._copyfile(self._exe, simdir)
             pfile = self._copyfile(self._pfile, simdir)
             sub_args["PARAMETER_FILE"] = pfile
+            sub_args["JOBDIR"] = simdir
+            if self._env is not None:
+                envfile = self._copyfile(self._env, simdir)
+                sub_args["ENV_FILE"] = envfile
             sfile = self._edit_submit_script(simdir, sub_args)
 
             # check whether chaining is necessary
@@ -124,6 +129,10 @@ class simulation:
         os.makedirs(os.path.join(cdir, 'submission'))
         shutil.copyfile(self._subscript, os.path.join(cdir, 'submission', "submission_script.x"))
 
+        _, ename = os.path.split(self._env)
+        os.makedirs(os.path.join(cdir, 'env'))
+        shutil.copyfile(self._env, os.path.join(cdir, 'env', ename))
+
         self._info_file = os.path.join(cdir, "status.yaml")
         self._lastjob = {"parfile": pname}
 
@@ -162,7 +171,20 @@ class simulation:
         if not os.path.isfile(self._subscript):
             raise RuntimeError("Could not find submission script")
 
-        
+        env_dir = os.path.join(cdir, 'env')
+        if os.path.isdir(env_dir):
+            candidates = [f for f in os.listdir(env_dir) if os.path.isfile(os.path.join(env_dir, f))]
+            if len(candidates) == 1:
+                self._env = os.path.join(env_dir, candidates[0])
+            elif len(candidates) > 1:
+                raise RuntimeError(
+                    f"Multiple environment files found in {env_dir}. "
+                    "Remove extras to disambiguate."
+                )
+            else:
+                self._env = None
+        else:
+            self._env = None
 
 
         

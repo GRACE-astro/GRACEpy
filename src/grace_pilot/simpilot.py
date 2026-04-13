@@ -72,11 +72,13 @@ class simpilot:
             raise ValueError("Invalid parameter file specified when creating a simulation")
 
         submitscript = os.path.join(self._bdir, "submitscripts", _machine.submit_template)
+        envfile = os.path.join(self._bdir, "env_files", _machine.env_file)
 
         sim = simulation(
             simname, simpath, _machine,
             submitscript,
-            executable, parameter_file
+            executable, parameter_file,
+            env=envfile
         )
         # Write a descriptor of this simulation
         sim_descriptor = {
