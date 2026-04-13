@@ -54,7 +54,7 @@ class grace_simulation:
     """
 
     @classmethod
-    def from_hdf5(cls, filepath):
+    def from_hdf5(cls, filepath, verbose=False):
         """Reconstruct a grace_simulation from an exported HDF5 file.
 
         This is the inverse of ``export_scalars``. The returned object
@@ -65,6 +65,8 @@ class grace_simulation:
         Args:
             filepath (str): Path to the HDF5 file produced by
                 ``export_scalars`` or ``export_scalars_hdf5``.
+            verbose (bool, optional):
+                Print progress messages. Defaults to False.
 
         Returns:
             grace_simulation: Reconstructed simulation object.
@@ -72,6 +74,7 @@ class grace_simulation:
         data = import_scalars_hdf5(filepath)
 
         sim = cls.__new__(cls)
+        sim._verbose = verbose
         sim.simdir = None
         sim.name = data["name"]
         sim.bdir = None
@@ -90,9 +93,11 @@ class grace_simulation:
         sim.detectors = data["detectors"]
         sim.prof = None
 
+        sim._log(f"Reconstructed '{sim.name}' from {filepath}")
+        sim._log(f"GW detectors: {sim.gw.available_detectors()}")
         return sim
 
-    def __init__(self, simdir: str, parfile=None, ppdir="./plots", Madm=None, omega0=None):
+    def __init__(self, simdir: str, parfile=None, ppdir="./plots", Madm=None, omega0=None, verbose=False):
         """Create a grace_simulation object.
 
         This is used to handle output data from a grace simulation.
@@ -114,13 +119,17 @@ class grace_simulation:
             omega0 (float, optional):
                 Initial orbital frequency. If None and the initial data
                 type is FUKA, this is auto-detected from the info file.
+            verbose (bool, optional):
+                Print progress messages during construction. Defaults to False.
         """
+        self._verbose = verbose
         self.simdir = simdir
         if not os.path.isdir(self.simdir):
             raise ValueError(f"Simulation directory {simdir} doesn't exist or cannot be read.")
         if parfile is None:
             parfile = self.__find_parfile()
         self.__parse_parfile(parfile)
+        self._log(f"Simulation '{self.name}' in {self.simdir}")
 
         # Auto-detect ID metadata from FUKA info file if available
         self._id_Madm, self._id_omega0 = self.__detect_id_metadata()
@@ -129,6 +138,8 @@ class grace_simulation:
             self._id_Madm = Madm
         if omega0 is not None:
             self._id_omega0 = omega0
+        if self._id_Madm is not None or self._id_omega0 is not None:
+            self._log(f"ID metadata: Madm={self._id_Madm}, omega0={self._id_omega0}")
 
         self.bdir = ppdir
         self.descdir = os.path.join(self.bdir, "descriptors")
@@ -142,7 +153,9 @@ class grace_simulation:
         plane_dirs  = self.__find_output_dirs(self._plane_subdir)
         sphere_dirs = self.__find_output_dirs(self._sphere_subdir)
         scalar_dirs = self.__find_output_dirs(self._scalar_subdir)
+        self._log(f"Found {len(scalar_dirs)} scalar output dir(s)")
 
+        self._log("Building XMF descriptors...")
         has_vol = gtx.write_xmf_file(os.path.join(self.descdir, "volume_descriptor.xmf"),
                                       volume_dirs, mode="temporal")
         has_xy  = gtx.write_xmf_file(os.path.join(self.descdir, "xy_plane_descriptor.xmf"),
@@ -154,15 +167,26 @@ class grace_simulation:
         gtx.write_xmf_file(os.path.join(self.descdir, "sphere_descriptor.xmf"),
                            sphere_dirs, mode="spherical")
 
+        self._log(f"VTK readers: vol={has_vol}, xy={has_xy}, xz={has_xz}, yz={has_yz}")
         self.xyz = gtv.grace_xmf_reader(os.path.join(self.descdir, "volume_descriptor.xmf")) if has_vol else None
         self.xy  = gtv.grace_xmf_reader(os.path.join(self.descdir, "xy_plane_descriptor.xmf")) if has_xy else None
         self.xz  = gtv.grace_xmf_reader(os.path.join(self.descdir, "xz_plane_descriptor.xmf")) if has_xz else None
         self.yz  = gtv.grace_xmf_reader(os.path.join(self.descdir, "yz_plane_descriptor.xmf")) if has_yz else None
+
+        self._log("Reading scalar data...")
         self.scalars = gts.grace_scalars_reader(scalar_dirs)
+        self._log("Reading GW data...")
         self.gw      = gtg.grace_gw_data(scalar_dirs, Madm=self._id_Madm, omega0=self._id_omega0)
+        self._log(f"GW detectors: {self.gw.available_detectors()}")
 
         # Assemble unified detector views
         self.detectors = self.__build_detectors()
+        self._log("Done.")
+
+    def _log(self, msg):
+        """Print a message if verbose mode is enabled."""
+        if self._verbose:
+            print(f"[grace_simulation] {msg}")
 
     def __build_detectors(self):
         """Build the detector set from parfile config and attach data references."""
@@ -300,6 +324,49 @@ class grace_simulation:
         except (FileNotFoundError, ValueError) as e:
             print(f"WARNING: Could not read FUKA info file: {e}")
             return None, None
+
+    def __repr__(self):
+        lines = [f"grace_simulation '{self.name}'"]
+        if self.simdir is not None:
+            lines.append(f"  directory: {self.simdir}")
+        if self._id_Madm is not None:
+            lines.append(f"  Madm: {self._id_Madm:.4f}")
+        if self._id_omega0 is not None:
+            lines.append(f"  omega0: {self._id_omega0:.6f}")
+
+        readers = []
+        if self.xyz is not None:
+            readers.append("xyz")
+        if self.xy is not None:
+            readers.append("xy")
+        if self.xz is not None:
+            readers.append("xz")
+        if self.yz is not None:
+            readers.append("yz")
+        lines.append(f"  VTK readers: {', '.join(readers) if readers else 'none'}")
+
+        if self.scalars is not None:
+            nred = sum(len(getattr(self.scalars, cat).available_vars())
+                       for cat in ("maximum", "minimum", "norm2", "integral"))
+            lines.append(f"  scalars: {nred} reduction var(s)")
+
+        if self.gw is not None:
+            dets = self.gw.available_detectors()
+            if dets:
+                parts = []
+                for d in dets:
+                    nmodes = len(self.gw[d].available_modes())
+                    parts.append(f"{d} ({nmodes} modes)")
+                lines.append(f"  GW: {', '.join(parts)}")
+            else:
+                lines.append("  GW: no detectors")
+
+        if self.detectors is not None:
+            det_names = self.detectors.available_detectors()
+            if det_names:
+                lines.append(f"  detectors: {', '.join(det_names)}")
+
+        return "\n".join(lines)
 
     def export_scalars(self, outfile=None):
         """Export all merged scalar and GW data to a single HDF5 file.

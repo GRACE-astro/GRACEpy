@@ -14,23 +14,14 @@ def main():
                         help="Output HDF5 file path. Default: <simdir>/<simname>_scalars.h5")
     parser.add_argument("--parfile", type=str, default=None,
                         help="Parameter file (auto-detected if not specified).")
+    parser.add_argument("-v", "--verbose", action="store_true",
+                        help="Print progress messages.")
     args = parser.parse_args()
 
-    from grace_tools.scalar_reader_utils import grace_scalars_reader
-    from grace_tools.gw_reader_utils import grace_gw_data
-    from grace_tools.scalar_export import export_scalars_hdf5
     from grace_tools.simutils import grace_simulation
 
-    # Use grace_simulation for full auto-detection (parfile, restarts, etc.)
-    # but skip XMF generation since we only need scalars
-    sim = grace_simulation(args.simdir, parfile=args.parfile)
-
-    outfile = args.output
-    if outfile is None:
-        outfile = os.path.join(args.simdir, f"{sim.name}_scalars.h5")
-
-    export_scalars_hdf5(sim.scalars, sim.gw, outfile)
-    print(f"Exported scalars to {outfile}")
+    sim = grace_simulation(args.simdir, parfile=args.parfile, verbose=args.verbose)
+    sim.export_scalars(args.output)
 
 
 if __name__ == "__main__":
