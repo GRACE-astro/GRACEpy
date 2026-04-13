@@ -12,7 +12,8 @@ import grace_tools.scalar_reader_utils as gts
 import grace_tools.profiling_reader_utils as gtp
 import grace_tools.gw_reader_utils as gtg
 from grace_tools.detector_utils import grace_detector_set
-from grace_tools.scalar_export import export_scalars_hdf5
+from grace_tools.scalar_export import export_scalars_hdf5, import_scalars_hdf5
+from grace_tools.fuka_utils import parse_fuka_info
 
 class grace_simulation:
     """Class designed to aid the analysis of data from a grace simulation.
@@ -52,7 +53,46 @@ class grace_simulation:
             Refer to its documentation for usage instructions.
     """
 
-    def __init__(self, simdir: str, parfile=None, ppdir="./plots"):
+    @classmethod
+    def from_hdf5(cls, filepath):
+        """Reconstruct a grace_simulation from an exported HDF5 file.
+
+        This is the inverse of ``export_scalars``. The returned object
+        has ``scalars``, ``gw``, and ``detectors`` fully populated.
+        Volume/plane readers (``xyz``, ``xy``, ``xz``, ``yz``) and
+        profiling (``prof``) are set to ``None``.
+
+        Args:
+            filepath (str): Path to the HDF5 file produced by
+                ``export_scalars`` or ``export_scalars_hdf5``.
+
+        Returns:
+            grace_simulation: Reconstructed simulation object.
+        """
+        data = import_scalars_hdf5(filepath)
+
+        sim = cls.__new__(cls)
+        sim.simdir = None
+        sim.name = data["name"]
+        sim.bdir = None
+        sim.descdir = None
+        sim._config = None
+        sim._id_Madm = data["gw"].Madm
+        sim._id_omega0 = data["gw"].omega0
+
+        sim.xyz = None
+        sim.xy = None
+        sim.xz = None
+        sim.yz = None
+
+        sim.scalars = data["scalars"]
+        sim.gw = data["gw"]
+        sim.detectors = data["detectors"]
+        sim.prof = None
+
+        return sim
+
+    def __init__(self, simdir: str, parfile=None, ppdir="./plots", Madm=None, omega0=None):
         """Create a grace_simulation object.
 
         This is used to handle output data from a grace simulation.
@@ -68,6 +108,12 @@ class grace_simulation:
             ppdir (str, optional):
                 Directory for post-processing output (descriptors, plots).
                 Defaults to "./plots".
+            Madm (float, optional):
+                Total ADM mass of the system. If None and the initial data
+                type is FUKA, this is auto-detected from the info file.
+            omega0 (float, optional):
+                Initial orbital frequency. If None and the initial data
+                type is FUKA, this is auto-detected from the info file.
         """
         self.simdir = simdir
         if not os.path.isdir(self.simdir):
@@ -75,6 +121,15 @@ class grace_simulation:
         if parfile is None:
             parfile = self.__find_parfile()
         self.__parse_parfile(parfile)
+
+        # Auto-detect ID metadata from FUKA info file if available
+        self._id_Madm, self._id_omega0 = self.__detect_id_metadata()
+        # Explicit constructor arguments take precedence
+        if Madm is not None:
+            self._id_Madm = Madm
+        if omega0 is not None:
+            self._id_omega0 = omega0
+
         self.bdir = ppdir
         self.descdir = os.path.join(self.bdir, "descriptors")
         if not os.path.isdir(ppdir):
@@ -104,7 +159,7 @@ class grace_simulation:
         self.xz      = gtv.grace_xmf_reader(os.path.join(self.descdir, "xz_plane_descriptor.xmf"))
         self.yz      = gtv.grace_xmf_reader(os.path.join(self.descdir, "yz_plane_descriptor.xmf"))
         self.scalars = gts.grace_scalars_reader(scalar_dirs)
-        self.gw      = gtg.grace_gw_data(scalar_dirs)
+        self.gw      = gtg.grace_gw_data(scalar_dirs, Madm=self._id_Madm, omega0=self._id_omega0)
 
         # Assemble unified detector views
         self.detectors = self.__build_detectors()
@@ -213,6 +268,39 @@ class grace_simulation:
             "scalar_output_base_directory", "output_scalar")
         self.name = str(config.get("name", "grace"))
 
+    def __detect_id_metadata(self):
+        """Try to extract ADM mass and orbital frequency from initial data.
+
+        Currently supports FUKA initial data: reads the .info file
+        referenced in the parameter file under grmhd.fuka.
+
+        Returns:
+            tuple: (Madm, omega0) — both None if not available.
+        """
+        if self._config is None:
+            return None, None
+
+        id_type = self._config.get("grmhd", {}).get("id_type")
+        if id_type != "fuka":
+            return None, None
+
+        fuka_cfg = self._config.get("grmhd", {}).get("fuka", {})
+        id_dir = fuka_cfg.get("id_dir")
+        filename = fuka_cfg.get("filename")
+        if id_dir is None or filename is None:
+            return None, None
+
+        if not filename.endswith(".info"):
+            filename = filename + ".info"
+        info_path = os.path.join(id_dir, filename)
+
+        try:
+            Madm, omega0 = parse_fuka_info(info_path)
+            return Madm, omega0
+        except (FileNotFoundError, ValueError) as e:
+            print(f"WARNING: Could not read FUKA info file: {e}")
+            return None, None
+
     def export_scalars(self, outfile=None):
         """Export all merged scalar and GW data to a single HDF5 file.
 
@@ -222,5 +310,6 @@ class grace_simulation:
         """
         if outfile is None:
             outfile = os.path.join(self.bdir, f"{self.name}_scalars.h5")
-        export_scalars_hdf5(self.scalars, self.gw, outfile)
+        export_scalars_hdf5(self.scalars, self.gw, outfile,
+                            name=self.name, detectors=self.detectors)
         print(f"Scalars exported to {outfile}")
