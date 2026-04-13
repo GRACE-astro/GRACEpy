@@ -143,21 +143,21 @@ class grace_simulation:
         sphere_dirs = self.__find_output_dirs(self._sphere_subdir)
         scalar_dirs = self.__find_output_dirs(self._scalar_subdir)
 
-        gtx.write_xmf_file(os.path.join(self.descdir, "volume_descriptor.xmf"),
-                           volume_dirs, mode="temporal")
-        gtx.write_xmf_file(os.path.join(self.descdir, "xy_plane_descriptor.xmf"),
-                           plane_dirs, mode="temporal", filter="*xy*")
-        gtx.write_xmf_file(os.path.join(self.descdir, "xz_plane_descriptor.xmf"),
-                           plane_dirs, mode="temporal", filter="*xz*")
-        gtx.write_xmf_file(os.path.join(self.descdir, "yz_plane_descriptor.xmf"),
-                           plane_dirs, mode="temporal", filter="*yz*")
+        has_vol = gtx.write_xmf_file(os.path.join(self.descdir, "volume_descriptor.xmf"),
+                                      volume_dirs, mode="temporal")
+        has_xy  = gtx.write_xmf_file(os.path.join(self.descdir, "xy_plane_descriptor.xmf"),
+                                      plane_dirs, mode="temporal", filter="*xy*")
+        has_xz  = gtx.write_xmf_file(os.path.join(self.descdir, "xz_plane_descriptor.xmf"),
+                                      plane_dirs, mode="temporal", filter="*xz*")
+        has_yz  = gtx.write_xmf_file(os.path.join(self.descdir, "yz_plane_descriptor.xmf"),
+                                      plane_dirs, mode="temporal", filter="*yz*")
         gtx.write_xmf_file(os.path.join(self.descdir, "sphere_descriptor.xmf"),
                            sphere_dirs, mode="spherical")
 
-        self.xyz     = gtv.grace_xmf_reader(os.path.join(self.descdir, "volume_descriptor.xmf"))
-        self.xy      = gtv.grace_xmf_reader(os.path.join(self.descdir, "xy_plane_descriptor.xmf"))
-        self.xz      = gtv.grace_xmf_reader(os.path.join(self.descdir, "xz_plane_descriptor.xmf"))
-        self.yz      = gtv.grace_xmf_reader(os.path.join(self.descdir, "yz_plane_descriptor.xmf"))
+        self.xyz = gtv.grace_xmf_reader(os.path.join(self.descdir, "volume_descriptor.xmf")) if has_vol else None
+        self.xy  = gtv.grace_xmf_reader(os.path.join(self.descdir, "xy_plane_descriptor.xmf")) if has_xy else None
+        self.xz  = gtv.grace_xmf_reader(os.path.join(self.descdir, "xz_plane_descriptor.xmf")) if has_xz else None
+        self.yz  = gtv.grace_xmf_reader(os.path.join(self.descdir, "yz_plane_descriptor.xmf")) if has_yz else None
         self.scalars = gts.grace_scalars_reader(scalar_dirs)
         self.gw      = gtg.grace_gw_data(scalar_dirs, Madm=self._id_Madm, omega0=self._id_omega0)
 

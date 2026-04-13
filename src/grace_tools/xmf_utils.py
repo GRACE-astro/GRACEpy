@@ -490,6 +490,8 @@ def write_xmf_file(outfile, bdir="./",mode="volume", verbose: bool = False, filt
             flist.extend(glob.glob(os.path.join(d, filter)))
         else:
             flist.extend(glob.glob(os.path.join(d, "*.h5")))
+    if not flist:
+        return False
     grouped = group_files__kind_iteration(flist)
     iterations = sorted(grouped.keys())
     kinds_per_iter = {it: list(grouped[it].keys()) for it in iterations}
@@ -530,5 +532,5 @@ def write_xmf_file(outfile, bdir="./",mode="volume", verbose: bool = False, filt
             grids.append(construct_spherical_grid(grouped[it][key]))
         with open(outfile,"w") as fout:
             fout.write(write_xmf_file_header({"name":"collection", "grids":grids}, True))
-    return 
+    return True
 
