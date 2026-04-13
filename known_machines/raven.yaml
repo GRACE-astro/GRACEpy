@@ -1,0 +1,11 @@
+name: "raven-gpu"
+scheduler: "SLURM"
+max_walltime: "24:00:00"
+backend: "CUDA"
+mem_per_node: 125000
+cpu_per_node: 72
+gpu_per_node: 4
+queues: ["gpu", "gpudev"]
+default_queue: ["gpu"]
+submission_script: "raven-gpu.sub"
+environment_file: "raven-gpu.sh"

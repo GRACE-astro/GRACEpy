@@ -33,7 +33,9 @@ setup(
             "archive_source=scripts.archive_source:main",
             "unpack_archive=scripts.unpack_archive:main",  
             "create_descriptor=scripts.create_descriptor:main",
-            "grace_info=scripts.grace_info:main"
+            "grace_info=scripts.grace_info:main",
+            "simpilot=scripts.simpilot:main",
+            "export_scalars=scripts.export_scalars:main"
         ],
     },
 )

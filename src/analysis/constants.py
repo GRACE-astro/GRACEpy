@@ -1,88 +1,71 @@
-src/analysis/constants.py
+#src/analysis/constants.py
 ## Some useful constants
 import numpy as np 
 
 
+# Physical constants in SI 
+G_si       = 6.6738e-11           # m^3/(kg s^2)
+c_si       = 299792458.0          # m/s
+Msun_si    = 1.9885e30            # kg
+mu0_si     = 1.256637061435917e-6 # Newton/Ampere^2
+Kb_si      = 1.3806488e-23        # Joule/K
+Mparsec_si = 3.08567758e22        # m
+parsec_si  = Mparsec_si * 1e-6    # m
+fm_si      = 1e-15                # m
+e_si       = 1.602176634e-19      # Coulomb
+h_si       = 6.62607015e-34       # m^2 kg / s 
 
-# Units are CGS unless specified 
-# speed of light
-clight = 29979245800
+# CGS 
+c_cgs     = c_si * 1e2      # cm/s
+G_cgs     = 6.67430e-8      # cm^3/(g s^2) 
+e_cgs     = 4.80320425e-10  # statC
+sigma_cgs = 5.670374419e-5  # erg cmˆ-2 sˆ-1 Kˆ-4 
+Msun_cgs  = 1.988475e33     # g 
+rad_cgs   = 7.5646e-15      # 4 sigma / c [ erg / cm^3 / K ]
+h_cgs     = h_si * 1e7      # cm^2 g / s 
+
+
+# Weird units 
 # Planck constant eV s 
 h_eVs = 6.582119569e-16 
 # Boltzmann constant 
 k_evKm1 = 8.617333262e-5 
-# Charge constant (C)
-e_charge = 1.602176634e-19 
-# statC 
-e_cgs = 4.80320425e-10 
+
+
+# Particle masses 
+me_MeV = 0.51099895069 # electron
+mp_MeV = 938.27208943  # proton 
+mn_MeV = 939.56542194  # neutron 
+
 # Fine structure constant 
 alpha_fine = 1./137.
-# Stefan Boltzmann constant 
-sigma_cgs = 5.670374419e-5 # erg cmˆ-2 sˆ-1 Kˆ-4 
-# Solar mass 
-Msun_cgs = 1.988475e33 
-# G constant 
-G_cgs = 6.67430e-8 
-G_pcMsunm1 = 4.3009172706e-3 # in parsec / Msun (km/s)ˆ2 
-# Electron mass 
-me_MeV = 0.51099895069
-me_KeV = 510.99895069
-# Magnetic
-mu0 = 1.2566370614359173e-6 # Vacuum permeability
-eps0 = 1.0/(mu0*clight**2) 
 
+# Conversions 
+erg_to_J     = 1e-7                  # Joule 
+eV_to_J      = 1.6021766208e-19      # Joule
+MeV_to_J     = 1.6021766208e-13      # Joule
+eV_to_kg     = eV_to_J / c_si**2     # Kg 
+MeV_to_kg    = MeV_to_J / c_si**2    # Kg 
+eV_to_erg    = eV_to_J / erg_to_J    # erg 
+MeV_to_erg   = MeV_to_J / erg_to_J   # erg 
+eV_to_g      = eV_to_erg / c_cgs**2  # g 
+MeV_to_g     = MeV_to_erg / c_cgs**2 # g 
 
-# conversions 
+# Particle masses 
+me_si  = me_MeV * MeV_to_kg # kg 
+me_cgs = me_MeV * MeV_to_g  # g 
+mp_si  = me_MeV * MeV_to_kg # kg 
+mp_cgs = me_MeV * MeV_to_g  # g 
+mn_si  = me_MeV * MeV_to_kg # kg 
+mn_cgs = me_MeV * MeV_to_g  # g 
 
-# Length
-cm_to_m = 1e2 
-m_to_cm = 1e-2 
-cm_to_km = 1e5 
-km_to_cm = 1e-5
-mum_to_cm = 1e-4
-cm_to_mum = 1e4 
-pc_to_km = 3.0857e13 
-AU_to_km = 149597870.7
-ly_to_km = 9460730472580.8 
-km_to_pc = 1/pc_to_km
-angstrom_to_nm = 0.1 
-nm_to_angstrom = 10 
-# Assuming c = G = Msun = 1  
-Msun_to_cm = G_cgs * Msun_cgs / clight**2
-cm_to_Msun = 1./Msun_to_cm 
-Msun_to_pc = Msun_to_cm * cm_to_km * km_to_pc
-# B field
-CU_to_Gauss = (1.0/Msun_to_cm/np.sqrt(eps0*G_cgs/(clight**2))) / 1e09 ;
-
-# Time 
-hour_to_s = 60 * 60 
-day_to_s = 24*hour_to_s 
-year_to_s = 365 * day_to_s 
-s_to_year = 1/year_to_s
-Msun_to_s = Msun_to_cm / clight 
-s_to_Msun = 1./Msun_to_s
-ms_to_Msun = s_to_Msun * 1e-3 
-Msun_to_ms = 1e03 * Msun_to_s
-
-# Temperature 
-eV_to_K = 1.0/k_evKm1
-keV_to_K = eV_to_K * 1e03 
-MeV_to_K = keV_to_K * 1e03 
-# Energy 
-J_to_erg = 1e07 
-erg_to_J = 1/J_to_erg
-eV_to_erg = e_charge * J_to_erg
-erg_to_eV = 1/eV_to_erg
-erg_to_keV = erg_to_eV * 1e-3 
-erg_to_MeV = erg_to_eV * 1e-6
-
-# Mass 
-eV_to_g = eV_to_erg/clight**2
-MeV_to_g = eV_to_g * 1e6 
-
-# Boltzmann constant in CGS 
-k_cgs = k_evKm1 * eV_to_erg
-# Planck constant in CGS 
-h_cgs = h_eVs * eV_to_erg
-# Electron mass revisited 
-me_cgs = me_MeV * MeV_to_g
+# Convenience 
+CU_to_m     = G_si * Msun_si / c_si**2 
+CU_to_s     = CU_to_m / c_si 
+CU_to_ms    = CU_to_s * 1e3 
+CU_to_cm    = CU_to_m * 1e2 
+CU_to_J     = Msun_si * c_si**2 
+CU_to_erg   = Msun_cgs * c_cgs**2 
+CU_to_Gauss = c_si**4 / Msun_si / G_si**(1.5)* mu0_si**(0.5) * 10000
+CU_to_Tesla = c_si**4 / Msun_si / G_si**(1.5)* mu0_si**(0.5)
+# 

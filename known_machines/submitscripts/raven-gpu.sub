@@ -1,0 +1,31 @@
+#!/bin/bash -l
+# Standard output and error:
+#SBATCH -o ./job.out.%j
+#SBATCH -e ./job.err.%j
+# Initial working directory:
+#SBATCH -D @JOBDIR@
+# Job name
+#SBATCH -J @JOBNAME@
+#
+#SBATCH --partition=@QUEUE@
+#SBATCH --nodes=@N_NODES@            
+#SBATCH --constraint="gpu"                  
+#SBATCH --gres=gpu:a100:@GPUS_PER_NODE@    
+#SBATCH --ntasks-per-node=@TASKS_PER_NODE@  
+#SBATCH --cpus-per-task=@CPUS_PER_TASK@
+#SBATCH --mem=@MEM@
+#SBATCH --mail-type=@MAIL_WHEN@
+#SBATCH --mail-user=@USER_MAIL@
+#SBATCH --time=@WALLTIME@
+
+
+cd @JOBDIR@
+
+module purge
+source @ENV_FILE@
+
+export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK}
+
+export UCX_TLS=^cma
+
+srun ./grace --grace-parfile @PARAMETER_FILE@
