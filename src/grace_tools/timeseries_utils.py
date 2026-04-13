@@ -107,7 +107,13 @@ class grace_timeseries:
         with open(file, 'r') as f:
             header_line = f.readline().strip()
 
-        col_names = header_line.split()
+        # GRACE uses tab-separated columns; split on tabs to preserve
+        # column names that contain spaces (e.g. "X [M]").
+        # Fall back to whitespace splitting for files without tabs.
+        if '\t' in header_line:
+            col_names = [c.strip() for c in header_line.split('\t') if c.strip()]
+        else:
+            col_names = header_line.split()
 
         raw = np.loadtxt(file, skiprows=1)
 

@@ -14,8 +14,15 @@ from grace_tools.timeseries_utils import (
 REDUCTION_TYPES = {"max": "maximum", "min": "minimum", "norm2": "norm2", "integral": "integral"}
 _REDUCTION_RE = re.compile(r"^(.+)_(max|min|norm2|integral)$")
 _GW_RE = re.compile(r"^r?Psi\d+m?\d+_(re|im)_.+$")
-_MDOT_RE = re.compile(r"^Mdot_(.+)_(\w+_\d+)$")
 _CO_LOC_RE = re.compile(r"^co_(.+)_loc$")
+
+# Known flux name prefixes from GRACE diagnostics (longest first for greedy match)
+_KNOWN_FLUX_PREFIXES = sorted([
+    "Mdot_unbound_geo", "Mdot_unbound_bern", "Mdot_tot",
+    "Mdot", "Edot", "Ldot", "Phi",
+    "E_ADM", "Px_ADM", "Py_ADM", "Pz_ADM",
+    "Jx_ADM", "Jy_ADM", "Jz_ADM",
+], key=len, reverse=True)
 
 
 class grace_scalars_reader:
@@ -91,15 +98,18 @@ class grace_scalars_reader:
             self.em_energy = ts
             return
 
-        # Mass flux diagnostics: Mdot_{type}_{detector}
-        match = _MDOT_RE.match(varname)
-        if match:
-            flux_type = match.group(1)
-            detector = match.group(2)
-            if detector not in self.mass_flux:
-                self.mass_flux[detector] = grace_timeseries_array()
-            self.mass_flux[detector][flux_type] = ts
-            return
+        # Flux diagnostics: {flux_prefix}_{detector}
+        # Flux prefixes are matched longest-first to handle e.g.
+        # "Mdot_unbound_geo" before "Mdot"
+        for prefix in _KNOWN_FLUX_PREFIXES:
+            if varname.startswith(prefix + "_"):
+                detector = varname[len(prefix) + 1:]
+                if detector:
+                    if detector not in self.mass_flux:
+                        self.mass_flux[detector] = grace_timeseries_array()
+                    self.mass_flux[detector][prefix] = ts
+                    return
+                break
 
         # Compact object locations: co_{name}_loc
         match = _CO_LOC_RE.match(varname)
