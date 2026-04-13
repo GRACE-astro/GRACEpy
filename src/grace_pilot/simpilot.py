@@ -135,7 +135,7 @@ class simpilot:
         with open(machines_file, "r") as f:
             machines = yaml.safe_load(f)
         self._known_machines = machines["known"]
-        self._default_machine = os.path.join(self._bdir,"machines",machines["default"]+".yaml")
+        self._default_machine = machines["default"]
 
         settings_file = os.path.join(self._bdir, "user_settings.yaml")
         with open(settings_file, "r") as f:
