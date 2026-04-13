@@ -14,7 +14,7 @@ class simpilot:
 
     def __init__(self):
 
-        self._bdir = os.path.join(self._get_env_path("SIMPLOT_BASEDIR"), ".simpilot")
+        self._bdir = os.path.join(self._get_env_path("SIMPILOT_BASEDIR"), ".simpilot")
 
         self._grace_bdir = self._get_env_path("GRACE_HOME")
 
