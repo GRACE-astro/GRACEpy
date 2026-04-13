@@ -279,7 +279,8 @@ class grace_simulation:
             return
 
         with open(parfile, 'r') as f:
-            config = yaml.safe_load(f)
+            content = f.read().expandtabs()
+        config = yaml.safe_load(content)
         self._config = config
 
         self._volume_subdir = config.get("IO", {}).get(
