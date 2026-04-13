@@ -20,6 +20,7 @@ def main():
     create_parser.add_argument("--machine", default=None, help="Machine to use")
     create_parser.add_argument("--executable", required=True, help="Path to executable")
     create_parser.add_argument("--parameter_file", required=True, help="Parameter file path")
+    create_parser.add_argument("--env_file", default=None, help="Environment file (overrides machine default)")
 
     # ---- submit subcommand ----
     submit_parser = subparsers.add_parser(
@@ -47,9 +48,10 @@ def main():
         sp.create_new_simulation(
             simname=args.simname,
             simpath=args.simpath,
-            machine_name=args.machine,
+            _machine=args.machine,
             executable=args.executable,
-            parameter_file=args.parameter_file
+            parameter_file=args.parameter_file,
+            env_file=args.env_file
         )
     elif args.command == "submit":
         sp.submit_simulation(

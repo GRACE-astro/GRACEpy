@@ -58,7 +58,7 @@ class simpilot:
             raise ValueError(f"No configuration file found for machine '{machine_name}'")
         return machine(machine_file)
 
-    def create_new_simulation(self, simname, simpath=None, _machine=None, executable=None, parameter_file=None):
+    def create_new_simulation(self, simname, simpath=None, _machine=None, executable=None, parameter_file=None, env_file=None):
 
         if simpath is None:
             simpath = os.path.join(self._user_settings["simpath"], simname)
@@ -72,7 +72,10 @@ class simpilot:
             raise ValueError("Invalid parameter file specified when creating a simulation")
 
         submitscript = os.path.join(self._bdir, "submitscripts", _machine.submit_template)
-        envfile = os.path.join(self._bdir, "env_files", _machine.env_file)
+        if env_file is not None:
+            envfile = env_file
+        else:
+            envfile = os.path.join(self._bdir, "env_files", _machine.env_file)
 
         sim = simulation(
             simname, simpath, _machine,
