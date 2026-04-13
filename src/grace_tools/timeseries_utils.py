@@ -115,6 +115,16 @@ class grace_timeseries:
         else:
             col_names = header_line.split()
 
+        # Merge unit annotations like "[M]" back into the preceding column name,
+        # in case tab splitting failed or was inconsistent.
+        merged = []
+        for token in col_names:
+            if token.startswith('[') and merged:
+                merged[-1] = merged[-1] + ' ' + token
+            else:
+                merged.append(token)
+        col_names = merged
+
         raw = np.loadtxt(file, skiprows=1)
 
         # Map header names to columns
