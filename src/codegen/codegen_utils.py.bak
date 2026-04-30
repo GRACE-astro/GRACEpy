@@ -21,7 +21,7 @@ class MyPrinter(C99CodePrinter):
             # Emit base*base*base...
             if exp.is_nonnegative: return "("+ "*".join(["("+self._print(base)+")"] * exp_val) + ")"
             else: return f"1/({self._print(base**abs(exp))})"
-
+        
         # handle x**(-1/2)
         if expr.exp == -sp.Rational(1,2):
             return f"(1.0/sqrt({self._print(expr.base)}))"
@@ -33,30 +33,6 @@ class MyPrinter(C99CodePrinter):
 
         # Otherwise fallback to regular pow(...)
         return super()._print_Pow(expr)
-
-    def _print_Piecewise(self, expr):
-        # Emit Piecewise as a nested C ternary so it can appear on the RHS of
-        # a `double x = ...;` line produced by make_body. Requires the last
-        # branch to be a catch-all (cond == True); otherwise fall back to the
-        # parent's if/else statement form.
-        if expr.args[-1].cond != sp.S.true:
-            return super()._print_Piecewise(expr)
-        *branches, default = expr.args
-        result = f"({self._print(default.expr)})"
-        for e, c in reversed(branches):
-            result = f"(({self._print(c)}) ? ({self._print(e)}) : {result})"
-        return result
-
-    def _print_Assignment(self, expr):
-        # Bypass the parent's Piecewise -> if/else special case: we want
-        # inline ternaries so `double x = <piecewise>;` stays a single
-        # statement. Non-Piecewise RHS falls through to the default path.
-        from sympy.functions.elementary.piecewise import Piecewise
-        if isinstance(expr.rhs, Piecewise):
-            lhs = self._print(expr.lhs)
-            rhs = self._print(expr.rhs)
-            return self._get_statement(f"{lhs} = {rhs}")
-        return super()._print_Assignment(expr)
 
 def derivative_matrix(mat, name, deriv_suffix):
     rows, cols = mat.shape
@@ -176,7 +152,7 @@ def make_body(exprs, printer, outputs, layout="flat", cse_order="canonical" ,cse
 
     # temporaries
     for var, sub in subexprs:
-        if ( cse_optims == 'basic' and isinstance(sub, sp.Expr) ): sub = optimize(sub, optims_c99)
+        if ( cse_optims == 'basic' ): sub = optimize(sub, optims_c99)
         lines.append(f"double {printer.doprint(Assignment(var, sub))}")
 
     # outputs

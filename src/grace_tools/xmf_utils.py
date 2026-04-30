@@ -32,12 +32,15 @@ def group_files__kind_iteration(files):
     grouped = defaultdict(dict)
     for f in files:
         iter_num = extract_iteration(f)
-        plane_match = re.search(r'plane_(xy|yz|xz)_\d+\.h5$', f)
-        vol_match = re.search(r'volume_out_\d+\.h5$', f)
-        if plane_match: 
+        plane_match   = re.search(r'plane_(xy|yz|xz)_\d+\.h5$', f)
+        vol_match     = re.search(r'volume_out_\d+\.h5$', f)
+        tracer_match  = re.search(r'_iter\d+\.h5$', f) and 'tracer' in os.path.basename(f).lower()
+        if plane_match:
             kind = plane_match.group(1) + "_plane"
         elif vol_match:
             kind = 'vol'
+        elif tracer_match:
+            kind = 'tracer'
         else :
             print(f"WARNING could not determine kind of file {f}, assuming volume")
             kind = 'vol'
@@ -137,10 +140,11 @@ def write_xmf_grid(iteration,time,points_dims,cells_dims,cells_type,h5name,attrs
     return output + "</Grid>\n"
 
 def write_xmf_point_grid(iteration, time, points_dims, h5name, attrs,
-                         use_polyvertex=True):
+                         use_polyvertex=True, points_dset="Points"):
     """
-    Generates an XMF grid for point-only data (e.g., a spherical surface 
-    sampled at points with nodal values). No cell connectivity is required.
+    Generates an XMF grid for point-only data (e.g., a spherical surface
+    sampled at points with nodal values, or tracer particles). No cell
+    connectivity is required.
 
     Parameters:
         iteration (int): Iteration index for the grid name.
@@ -155,6 +159,8 @@ def write_xmf_point_grid(iteration, time, points_dims, h5name, attrs,
             - "data_type": underlying type, e.g. "Float"
         use_polyvertex (bool): If True, write <Topology Type="Polyvertex">.
                                If False, omit Topology entirely.
+        points_dset (str): HDF5 dataset name holding the (N,3) coordinates.
+            "Points" for spheres; "Position" for tracers.
 
     Returns:
         str: An XMF string representing a point-only grid.
@@ -165,7 +171,7 @@ def write_xmf_point_grid(iteration, time, points_dims, h5name, attrs,
     <Time Value="{time}"/>
     <Geometry Type="XYZ">
         <DataItem DataType="Float" Dimensions="{points_dims[0]} {points_dims[1]}"
-                  Format="HDF" Precision="8">{h5name}:/Points</DataItem>
+                  Format="HDF" Precision="8">{h5name}:/{points_dset}</DataItem>
     </Geometry>
     '''
 
@@ -294,6 +300,24 @@ def write_xmf_temporal_collection_spheres(name, grids):
     output = '''<Grid CollectionType="Temporal" GridType="Collection" Name="{}">\n'''.format(name)
     for grid in grids:
         output += write_xmf_point_grid(grid["iteration"],grid["time"],grid["points_dims"],grid["h5name"],grid["attrs"])
+    return output + "</Grid>\n"
+
+
+def write_xmf_temporal_collection_tracers(name, grids):
+    """
+    Temporal collection of tracer point grids. Same shape as the spheres
+    variant, but each grid uses `/Position` for geometry (matching what
+    the GRACE particle subsystem writes). Open the resulting .xmf in
+    ParaView and use *Temporal Particles To Pathlines* on the `id`
+    attribute to render full trajectory polylines.
+    """
+    output = '''<Grid CollectionType="Temporal" GridType="Collection" Name="{}">\n'''.format(name)
+    for grid in grids:
+        output += write_xmf_point_grid(
+            grid["iteration"], grid["time"], grid["points_dims"],
+            grid["h5name"], grid["attrs"],
+            use_polyvertex=True, points_dset="Position",
+        )
     return output + "</Grid>\n"
 
 def write_xmf_collection(name,grids):
@@ -448,7 +472,10 @@ def extract_iteration(filename):
     Returns:
         int: The extracted iteration number, or -1 if no match is found.
     """
-    match = re.search(r'\S+_(\d+)\.h5', filename)
+    # Tracers use `..._iter<digits>.h5` (no underscore before digits); fall
+    # back to the original `..._<digits>.h5` for volume/plane/sphere outputs.
+    match = re.search(r'_iter(\d+)\.h5$', filename) \
+         or re.search(r'_(\d+)\.h5$', filename)
     return int(match.group(1)) if match else -1
 
 def construct_grid(f, name="volume_grid"):
@@ -466,6 +493,78 @@ def construct_spherical_grid(f, name="sphere"):
     for i,vname in enumerate(vnames):
         attrs.append({"name": vname, "dtype": vtypes[i], "data_type": vdtype[i], "dimensions": var_dims[i], "staggering": vstags[i]})
     return {"name": name, "iteration": iteration, "time": time, "points_dims": points_dims, "h5name": ff, "attrs": attrs}
+
+
+def collect_tracer_attributes(fname):
+    """
+    Tracer HDF5 files written by GRACE's particle subsystem have a
+    different convention from volume/sphere outputs:
+      - coordinates live in `/Position` (not `/Points`)
+      - no `/Cells` dataset
+      - no per-dataset `VariableType` / `VariableStaggering` attrs
+
+    Everything is implicitly nodal. Vector-ness is inferred from rank:
+    1D dataset = Scalar, 2D dataset with last dim 3 = Vector.
+
+    Returns:
+        (vnames, vtypes, vdatatypes, points_dims, var_dims, time, iteration, n_particles)
+    """
+    vnames, vtypes, vdatatypes, var_dims = [], [], [], []
+    with h5py.File(fname, "r") as f:
+        if "Position" not in f:
+            raise ValueError(f"{fname}: no /Position dataset; not a tracer file?")
+        points_dims = f["Position"].shape
+        time        = float(f.attrs["Time"])
+        iteration   = int(f.attrs["Iteration"])
+        n_particles = int(f.attrs["NParticles"]) if "NParticles" in f.attrs else points_dims[0]
+
+        for vname in f.keys():
+            if vname == "Position":
+                continue
+            ds = f[vname]
+            shape = ds.shape
+            if len(shape) == 1:
+                vtypes.append("Scalar")
+                var_dims.append(shape[0])
+            elif len(shape) == 2 and shape[1] == 3:
+                vtypes.append("Vector")
+                var_dims.append(shape[0])
+            else:
+                # Unknown shape — skip rather than emit a malformed XMF entry.
+                continue
+            vdatatypes.append(ds.dtype)
+            vnames.append(vname)
+    return (vnames, vtypes, vdatatypes, points_dims, var_dims,
+            time, iteration, n_particles)
+
+
+def construct_tracer_grid(f, name="tracers"):
+    """
+    Build a grid descriptor dict for one tracer-snapshot HDF5 file.
+    Geometry uses `/Position` (length-N, 3 components); every other
+    dataset becomes a Node-centered Attribute. Suitable for
+    write_xmf_point_grid with points_dset="Position".
+    """
+    ff = os.path.abspath(f)
+    vnames, vtypes, vdtype, points_dims, var_dims, time, iteration, _ = \
+        collect_tracer_attributes(ff)
+    attrs = []
+    for i, vname in enumerate(vnames):
+        attrs.append({
+            "name":       vname,
+            "dtype":      vtypes[i],
+            "data_type":  vdtype[i],
+            "dimensions": var_dims[i],
+            "staggering": "Node",
+        })
+    return {
+        "name":        name,
+        "iteration":   iteration,
+        "time":        time,
+        "points_dims": points_dims,
+        "h5name":      ff,
+        "attrs":       attrs,
+    }
 
 
 def write_xmf_file(outfile, bdir="./",mode="volume", verbose: bool = False, filter=None):
@@ -495,18 +594,42 @@ def write_xmf_file(outfile, bdir="./",mode="volume", verbose: bool = False, filt
     grouped = group_files__kind_iteration(flist)
     iterations = sorted(grouped.keys())
     kinds_per_iter = {it: list(grouped[it].keys()) for it in iterations}
-    
+
+    # Auto: tracer files take precedence — they use a different geometry
+    # convention (`/Position`, no `/Cells`) and can't share a temporal
+    # collection with volume/plane snapshots.
+    is_tracer_run = all(
+        all(k == 'tracer' for k in kinds_per_iter[it])
+        for it in iterations
+    ) and any('tracer' in kinds_per_iter[it] for it in iterations)
+
     use_spatial_collection = any(
-        any(k != 'vol' and k != 'unknown' for k in kinds_per_iter[it])
+        any(k != 'vol' and k != 'unknown' and k != 'tracer'
+            for k in kinds_per_iter[it])
         for it in iterations
     )
 
     if verbose:
         print("Iterations:", iterations)
         print("Kinds per iteration:", kinds_per_iter)
+        print("Is tracer run:", is_tracer_run)
         print("Use spatial collection:", use_spatial_collection)
-    
-    if mode == "temporal" or (mode=="auto" and not use_spatial_collection):
+
+    if mode == "tracer" or (mode == "auto" and is_tracer_run):
+        grids = []
+        for it in iterations:
+            if 'tracer' not in kinds_per_iter[it]:
+                continue
+            grids.append(construct_tracer_grid(grouped[it]['tracer']))
+        with open(outfile, "w") as fout:
+            fout.write('''<?xml version="1.0" encoding="utf-8"?>
+    <Xdmf xmlns:xi="http://www.w3.org/2001/XInclude" Version="3.0">
+    <Domain>''')
+            fout.write(write_xmf_temporal_collection_tracers(
+                "ParticleTrajectories", grids))
+            fout.write('''</Domain>
+    </Xdmf>\n''')
+    elif mode == "temporal" or (mode=="auto" and not use_spatial_collection):
         grids = []
         for it in iterations:
             if len(grouped[it].keys()) > 1:
@@ -516,7 +639,7 @@ def write_xmf_file(outfile, bdir="./",mode="volume", verbose: bool = False, filt
         with open(outfile,"w") as fout:
             fout.write(write_xmf_file_header({"name":"collection", "grids":grids}))
     elif mode == "spatial" or (mode=="auto" and use_spatial_collection):
-        colls = [] 
+        colls = []
         for it in iterations:
             grids = []
             for k in grouped[it].keys():
@@ -526,7 +649,7 @@ def write_xmf_file(outfile, bdir="./",mode="volume", verbose: bool = False, filt
         with open(outfile,"w") as fout:
             fout.write(write_xmf_file_header_spatial_collection({"name":"collection", "collections":colls}))
     elif mode == "spherical":
-        grids = [] 
+        grids = []
         for it in iterations:
             key = list(grouped[it].keys())[0]
             grids.append(construct_spherical_grid(grouped[it][key]))

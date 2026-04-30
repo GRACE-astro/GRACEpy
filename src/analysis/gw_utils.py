@@ -83,7 +83,7 @@ def align_waveforms(t, psi1, psi2, t1, t2):
     dt_opt, dphi_opt = sol.x
 
     # Eq 78: shift and rotate psi2
-    phi2_aligned = (phi2(t - dt_opt) - dphi_opt)
+    phi2_aligned = (phi2(t - dt_opt) + dphi_opt)
     psi2_aligned = A2(t - dt_opt) * np.exp(-1j * phi2_aligned)
     return psi2_aligned, phi2_aligned, dt_opt, dphi_opt
 

@@ -31,11 +31,27 @@ class eos_table():
     '''
     EOS table base class
     '''
-    def __init__(self,fname,kind="compose"):
+    def __init__(self,fname,kind="compose",force_mu=False):
         self.units = GEOM_UNIT_SYSTEM
 
-        self._table_name = fname 
-        self._table_kind = kind 
+        self._table_name = fname
+        self._table_kind = kind
+
+        # Reference baryon mass for nb <-> rho conversion. The CompOSE manual
+        # specifies the neutron mass; FUKA / LORENE / Margherita use the atomic
+        # mass unit instead. Pass force_mu=True to match the FUKA convention so
+        # that GRACE M_baryon agrees with FUKA M_baryon when a FUKA initial
+        # data file is imported.
+        self.force_mu = force_mu
+        self._mb_MeV = pc.mu_MeV if force_mu else pc.mn_MeV
+        if not force_mu:
+            self._emit_warning(
+                "force_mu is False: this generates a CompOSE-strict (m_n) table. "
+                "Such a table is INCOMPATIBLE with FUKA-format initial data and "
+                "will produce a ~0.87% bias in M_baryon and ~1 rad of GW phase "
+                "drift over a typical BNS inspiral. Use force_mu=True for any "
+                "GRACE simulation that imports FUKA / LORENE / Margherita data."
+            )
 
         self.logrho = np.array([0])
         self.logtemp = np.array([0])
@@ -158,9 +174,9 @@ class eos_table():
 
     def _export_lorene_table(self, filename, table):
         units_lorene = CGS_UNIT_SYSTEM
-        uconv = self.units / units_lorene 
+        uconv = self.units / units_lorene
         fm_SI   = 1e-15
-        mbar_si = pc.mn_MeV * pc.MeV_to_kg
+        mbar_si = self._mb_MeV * pc.MeV_to_kg
         rho_lorene = np.exp(table["logrho"]) / mbar_si * fm_SI**3 * self.units.dens
         eps_phys = np.exp(table["logeps"]) - table["energy_shift"]
         e_lorene = np.exp(table["logrho"]) * (1+eps_phys) * uconv.dens
@@ -300,10 +316,10 @@ class scollapse_eos_table(eos_table):
     Converts the HDF5 table into the GRACE format (units, conventions)
     '''
 
-    def __init__(self,fname):
-        super().__init__(fname, "stellarcollapse")
-        self.units = GEOM_UNIT_SYSTEM 
-        self.readtable() 
+    def __init__(self,fname,force_mu=False):
+        super().__init__(fname, "stellarcollapse", force_mu=force_mu)
+        self.units = GEOM_UNIT_SYSTEM
+        self.readtable()
 
     def readtable(self):
         with h5py.File(self._table_name, "r") as f:
@@ -345,10 +361,14 @@ class scollapse_eos_table(eos_table):
 
         self.energy_shift = table_data["energy_shift"] * uconv.velocity**2 
 
-        try: self.baryon_mass = table_data["mass_factor"] * uconv.mass 
-        except: 
-            self._emit_warning("Could not retrieve baryon mass from table, using neutron mass")
-            self.baryon_mass = pc.mn_MeV * pc.MeV_to_kg / self.units.mass 
+        if self.force_mu:
+            self._emit_message("force_mu set: using atomic mass unit baryon mass (overriding any table value)")
+            self.baryon_mass = self._mb_MeV * pc.MeV_to_kg / self.units.mass
+        else:
+            try: self.baryon_mass = table_data["mass_factor"] * uconv.mass
+            except:
+                self._emit_warning("Could not retrieve baryon mass from table, using neutron mass")
+                self.baryon_mass = self._mb_MeV * pc.MeV_to_kg / self.units.mass
 
 
 class compose_eos_table(eos_table):
@@ -357,10 +377,10 @@ class compose_eos_table(eos_table):
     Converts the HDF5 table into the GRACE format (units, conventions)
     '''
 
-    def __init__(self,fname):
-        super().__init__(fname,"compose")
+    def __init__(self,fname,force_mu=False):
+        super().__init__(fname,"compose",force_mu=force_mu)
         self.units = GEOM_UNIT_SYSTEM
-        self.readtable() 
+        self.readtable()
 
     def readtable(self):
         with h5py.File(self._table_name, "r") as f:
@@ -376,9 +396,9 @@ class compose_eos_table(eos_table):
 
         par_data = table_data["Parameters"]
         # First: extract baryon number density,
-        # convert to rest mass density using our 
-        # unit for the baryon mass 
-        self.logrho = np.log(par_data["nb"] * pc.mn_MeV * uconv.dens)
+        # convert to rest mass density using our
+        # unit for the baryon mass (m_n by default, m_u when force_mu is set)
+        self.logrho = np.log(par_data["nb"] * self._mb_MeV * uconv.dens)
 
         # Temperature we keep in MeV but we log 
         self.logtemp = np.log(par_data["t"])
@@ -410,17 +430,25 @@ class compose_eos_table(eos_table):
         read_data_entry("mu_n", tab_therm_data, tab_therm_idx)
         read_data_entry("mu_p", tab_therm_data, tab_therm_idx)
 
-        # Convert units 
+        # Convert units
 
-        # 1 pressure 
+        # 1 pressure
         self.table_data["logpress"] = np.log(self.table_data["logpress"] * uconv.pressure)
 
-        # Find energy shift 
-        epsmin = np.amin(self.table_data["logeps"]) 
+        # CompOSE stores eps as e_phys/(nb*m_n*c^2) - 1. With force_mu the rho
+        # axis above was set to nb*m_u, so eps must be redefined consistently
+        # as e_phys/(nb*m_u*c^2) - 1 = (m_n/m_u)(1+eps_n) - 1, otherwise the
+        # table's rho*(1+eps) no longer equals the physical energy density.
+        if self.force_mu:
+            r = pc.mn_MeV / pc.mu_MeV
+            self.table_data["logeps"] = r * (1.0 + self.table_data["logeps"]) - 1.0
+
+        # Find energy shift
+        epsmin = np.amin(self.table_data["logeps"])
         if epsmin < 0:
-            self.energy_shift = -2 * epsmin 
+            self.energy_shift = -2 * epsmin
         else:
-            self.energy_shift = 0.0 
+            self.energy_shift = 0.0
 
         # Store log(eps + shift)
         self.table_data["logeps"] = np.log(
@@ -459,7 +487,7 @@ class compose_eos_table(eos_table):
         self.table_data["Zbar"] = quad_tab_data["zav"][0,:,:,:]
         self.table_data["Xh"]   = quad_tab_data["aav"][0,:,:,:] * quad_tab_data["yav"][0,:,:,:]
 
-        self.baryon_mass = pc.mn_MeV * uconv.mass 
+        self.baryon_mass = self._mb_MeV * uconv.mass
     
         
 class lorene_table:

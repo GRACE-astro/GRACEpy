@@ -35,7 +35,8 @@ k_evKm1 = 8.617333262e-5
 # Particle masses 
 me_MeV = 0.51099895069 # electron
 mp_MeV = 938.27208943  # proton 
-mn_MeV = 939.56542194  # neutron 
+mn_MeV = 939.56542194  # neutron
+mu_MeV = 931.49410242  # atomic mass unit (CODATA 2018) — FUKA / LORENE / Margherita convention
 
 # Fine structure constant 
 alpha_fine = 1./137.

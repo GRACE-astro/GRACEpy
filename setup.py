@@ -35,7 +35,8 @@ setup(
             "create_descriptor=scripts.create_descriptor:main",
             "grace_info=scripts.grace_info:main",
             "simpilot=scripts.simpilot:main",
-            "export_scalars=scripts.export_scalars:main"
+            "export_scalars=scripts.export_scalars:main",
+            "export_uniform=scripts.export_uniform:main"
         ],
     },
 )
