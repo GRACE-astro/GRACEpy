@@ -5,6 +5,10 @@ from sympy.simplify.cse_main import cse
 import sympy as sp
 from sympy import S
 from sympy.printing.c import C99CodePrinter, Assignment
+try:
+    from sympy.printing.numpy import NumPyPrinter            # sympy >= 1.11
+except ImportError:                                           # pragma: no cover
+    from sympy.printing.pycode import NumPyPrinter            # older sympy
 from sympy import init_printing
 
 class MyPrinter(C99CodePrinter):
@@ -319,4 +323,165 @@ def make_function(exprs, printer, name, ABI, outputs, outputs_ABI, layout="flat"
     body = make_body(exprs, printer, outputs, layout, cse_order, cse_optims, cse_ignore, add_to_output)
 
     return sig + "\n{\n" + body + "\n}\n"
+
+
+# ============================================================================
+# Python emitter: parallel of make_function that produces a numpy-flavoured
+# Python function with the same name, ABI ordering, and CSE structure as the
+# C version.  Useful for stress-testing solvers in isolation without rebuilding
+# the full numerical-relativity codebase.
+# ============================================================================
+
+class MyPyPrinter(NumPyPrinter):
+    """NumPy printer that emits Piecewise as inline `a if c else b` ternaries
+    so a CSE temporary `x = <piecewise>` is one statement, mirroring how
+    MyPrinter handles the C ternary.  Relational operators are emitted as
+    plain Python operators (==, >=, …) rather than numpy.equal/etc., which
+    keeps the generated code readable and avoids module-alias collisions."""
+
+    _module_format_overrides = {"numpy.sqrt": "np.sqrt", "numpy.array": "np.array"}
+
+    def _module_format(self, fqn, register=True):
+        # Force every numpy.* spelling to np.* so the generated code matches
+        # `import numpy as np` at the top of the emitted module.
+        return super()._module_format(fqn, register).replace("numpy.", "np.")
+
+    def _print_Piecewise(self, expr):
+        if expr.args[-1].cond != sp.S.true:
+            return super()._print_Piecewise(expr)
+        *branches, default = expr.args
+        result = f"({self._print(default.expr)})"
+        for e, c in reversed(branches):
+            result = f"({self._print(e)} if {self._print(c)} else {result})"
+        return result
+
+    # Plain Python relationals — needed because Piecewise conditions are
+    # always scalar at call time (idir, sign(Bn), etc.) so we don't want
+    # vectorized numpy.equal/numpy.greater_equal calls there.
+    def _print_Equality(self, expr):
+        return f"({self._print(expr.args[0])} == {self._print(expr.args[1])})"
+    def _print_Unequality(self, expr):
+        return f"({self._print(expr.args[0])} != {self._print(expr.args[1])})"
+    def _print_StrictGreaterThan(self, expr):
+        return f"({self._print(expr.args[0])} > {self._print(expr.args[1])})"
+    def _print_GreaterThan(self, expr):
+        return f"({self._print(expr.args[0])} >= {self._print(expr.args[1])})"
+    def _print_StrictLessThan(self, expr):
+        return f"({self._print(expr.args[0])} < {self._print(expr.args[1])})"
+    def _print_LessThan(self, expr):
+        return f"({self._print(expr.args[0])} <= {self._print(expr.args[1])})"
+
+    def _print_Pow(self, expr):
+        # Special-case x**(-1/2) to a sqrt for parity with MyPrinter; let the
+        # parent handle integer powers (Python's ** is fine) and other cases.
+        if expr.exp == -sp.Rational(1, 2):
+            return f"(1.0/np.sqrt({self._print(expr.base)}))"
+        if expr.exp == -sp.Rational(3, 2):
+            base = f"(1.0/np.sqrt({self._print(expr.base)}))"
+            return f"({base}*{base}*{base})"
+        return super()._print_Pow(expr)
+
+    # NumPyPrinter routes Max/Min through functools.reduce(numpy.maximum,...);
+    # emit np.maximum.reduce(...) directly so the generated module needs only
+    # `import numpy as np`.
+    def _print_Max(self, expr):
+        if len(expr.args) == 2:
+            return f"np.maximum({self._print(expr.args[0])}, {self._print(expr.args[1])})"
+        elems = ", ".join(self._print(a) for a in expr.args)
+        return f"np.maximum.reduce([{elems}])"
+    def _print_Min(self, expr):
+        if len(expr.args) == 2:
+            return f"np.minimum({self._print(expr.args[0])}, {self._print(expr.args[1])})"
+        elems = ", ".join(self._print(a) for a in expr.args)
+        return f"np.minimum.reduce([{elems}])"
+
+
+def _emit_output_py(expr, printer, out_name, layout="flat"):
+    """Build a Python statement (or block of statements) that assigns the
+    SymPy expression to `out_name`.  Vectors are emitted as np.array([...]),
+    matrices as np.array([...]).reshape((rows, cols)) when layout=="flat",
+    or as a 2-D array literal otherwise."""
+    if isinstance(expr, sp.Matrix):
+        rows, cols = expr.shape
+        if rows == 1 or cols == 1:
+            n = max(rows, cols)
+            elems = ", ".join(printer.doprint(expr[i]) for i in range(n))
+            return [f"{out_name} = np.array([{elems}])"]
+        elems = ", ".join(
+            printer.doprint(expr[i, j]) for i in range(rows) for j in range(cols)
+        )
+        if layout == "flat":
+            return [f"{out_name} = np.array([{elems}])"]
+        return [f"{out_name} = np.array([{elems}]).reshape(({rows}, {cols}))"]
+    return [f"{out_name} = {printer.doprint(expr)}"]
+
+
+def _make_body_py(exprs, printer, outputs, layout, cse_order, cse_optims, cse_ignore):
+    subexprs, reduced = cse(exprs, optimizations=cse_optims,
+                            order=cse_order, ignore=cse_ignore)
+    lines = []
+    for var, sub in subexprs:
+        if cse_optims == 'basic' and isinstance(sub, sp.Expr):
+            sub = optimize(sub, optims_c99)
+        lines.append(f"{printer.doprint(var)} = {printer.doprint(sub)}")
+    if len(outputs) == len(reduced):
+        for expr, name in zip(reduced, outputs):
+            lines.extend(_emit_output_py(expr, printer, name, layout))
+    else:
+        for expr in reduced:
+            lines.extend(_emit_output_py(expr, printer, outputs[0], layout))
+    if len(outputs) == 1:
+        lines.append(f"return {outputs[0]}")
+    else:
+        lines.append(f"return ({', '.join(outputs)})")
+    return "    " + "\n    ".join(lines)
+
+
+def make_function_py(exprs, printer, name, ABI, outputs, outputs_ABI,
+                     layout="flat", additional_inputs=(),
+                     cse_order='canonical', cse_optims='basic',
+                     cse_ignore=(), global_constants=()):
+    """Python counterpart of make_function.  Emits a `def name(args): ...`
+    block whose argument order matches the C ABI ordering exactly.  Outputs
+    are returned as a tuple (or as a single value when len(outputs)==1).
+
+    Argument names are passed through the printer's reserved-keyword escape
+    (e.g. `lambda` → `lambda_`) so the signature matches the body, where
+    sympy applies the same escape automatically."""
+
+    ABI_order = {k: i for i, k in enumerate(ABI.keys())}
+
+    input_syms = set()
+    for e in exprs:
+        for s in e.free_symbols:
+            input_syms.add(base_name(s))
+    for s in additional_inputs:
+        input_syms.add(base_name(s))
+
+    output_syms = [base_name(o) for o in outputs]
+    input_syms = [s for s in input_syms if s not in output_syms]
+
+    def key(n):
+        if n in ABI_order:
+            return (0, ABI_order[n])
+        return (1, n)
+
+    args_raw = sorted(input_syms, key=key)
+
+    for n in args_raw:
+        if n not in ABI and n not in global_constants:
+            raise ValueError(f"Symbol {n} missing from ABI")
+
+    # Escape Python reserved words to match what the printer emits in the body
+    # (sympy's PythonCodePrinter rewrites e.g. `lambda` → `lambda_`).
+    reserved   = getattr(printer, 'reserved_words', set())
+    suffix     = printer._settings.get('reserved_word_suffix', '_') if hasattr(printer, '_settings') else '_'
+    def escape(n):
+        return n + suffix if n in reserved else n
+    args = [escape(n) for n in args_raw]
+
+    sig  = f"def {name}({', '.join(args)}):"
+    body = _make_body_py(exprs, printer, output_syms, layout,
+                         cse_order, cse_optims, cse_ignore)
+    return sig + "\n" + body + "\n"
 
