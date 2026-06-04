@@ -47,6 +47,11 @@ class machine:
     def check_submit_arguments_and_set_defaults(self, args):
         """Check submit arguments and fill in defaults if missing, raising errors for invalid values."""
 
+        # A machine is "GPU" if it advertises GPUs. On such machines the default
+        # layout is one MPI rank per GPU; on CPU machines it is one rank per node
+        # (the user may then ask for more, capped at the core count).
+        is_gpu = self.gpu_per_node > 0
+
         # Queue
         queue = args.get("QUEUE")
         if queue is None:
@@ -54,19 +59,25 @@ class machine:
         elif queue not in self.queues:
             raise ValueError(f"Requested queue '{queue}' is not recognized")
 
-        # GPUs per node
+        # GPUs per node — only meaningful on GPU machines
         gpus = args.get("GPUS_PER_NODE")
-        if gpus is None:
+        if not is_gpu:
+            if gpus not in (None, 0):
+                raise ValueError(f"Machine '{self.name}' has no GPUs; do not set GPUS_PER_NODE")
+            args["GPUS_PER_NODE"] = 0
+        elif gpus is None:
             args["GPUS_PER_NODE"] = self.gpu_per_node
         elif not (1 <= gpus <= self.gpu_per_node):
             raise ValueError(f"Requested number of GPUs per node ({gpus}) is invalid, maximum is {self.gpu_per_node}")
 
-        # Tasks per node
+        # Tasks per node — default to one rank per GPU on GPU machines, one rank
+        # per node on CPU machines. Cap at #GPUs (GPU) or #cores (CPU).
+        max_tasks = self.gpu_per_node if is_gpu else self.cpu_per_node
         tasks = args.get("TASKS_PER_NODE")
         if tasks is None:
-            args["TASKS_PER_NODE"] = self.gpu_per_node
-        elif not (1 <= tasks <= self.gpu_per_node):
-            raise ValueError(f"Requested number of tasks per node ({tasks}) is invalid, maximum is {self.gpu_per_node}")
+            args["TASKS_PER_NODE"] = self.gpu_per_node if is_gpu else 1
+        elif not (1 <= tasks <= max_tasks):
+            raise ValueError(f"Requested number of tasks per node ({tasks}) is invalid, maximum is {max_tasks}")
 
         # Memory per node
         mem = args.get("MEM")

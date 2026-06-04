@@ -25,7 +25,9 @@ module purge
 source @ENV_FILE@
 
 export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK}
+export OMP_PLACES=cores
 
-export UCX_TLS=^cma
+export LD_LIBRARY_PATH=$(clang++ -print-runtime-dir):$LD_LIBRARY_PATH
+
 
 srun ./grace --grace-parfile @PARAMETER_FILE@

@@ -5,3 +5,8 @@ doc/html
 doc/latex
 .vscode
 .claude
+
+# simpilot per-user state (email, paths) — never commit
+.simpilot/
+user_settings.yaml
+site.sh

@@ -1,6 +1,7 @@
-#!/bin/zsh
+#!/bin/bash
+module purge
 
-module load gcc/14 rocm/6.3 openmpi/5.0 hdf5-mpi gsl mkl
+module load gcc/15 openmpi/5.0 hdf5-mpi/2.0.0 cmake/3.30 git/2.50
 
 # bundled deps
 
