@@ -16,10 +16,10 @@ def main():
     parser = argparse.ArgumentParser(description='Generate xmf descriptor file for grace hdf5 output.')
     parser.add_argument('input_dir', type=str, help='Path containing grace HDF5 output to be parsed.')
     parser.add_argument('output_file', type=str, help='Output xmf file.')
-    parser.add_argument('--mode', 
-                        type=str, default='auto', 
-                        choices=['auto', 'temporal', 'spatial', 'spherical'],  # only allow these values
-                        help="Can be 'auto' 'temporal', 'spatial' or 'spherical' depending on the kind of output processed.")
+    parser.add_argument('--mode',
+                        type=str, default='auto',
+                        choices=['auto', 'temporal', 'spatial', 'spherical', 'tracer'],
+                        help="'auto' 'temporal' 'spatial' 'spherical' or 'tracer' depending on the kind of output processed. Tracer files use Polyvertex topology with /Position as geometry; ParaView's 'Temporal Particles To Pathlines' filter on the id field reconstructs trajectories.")
     parser.add_argument('--verbose', action='store_true', default=False, help='Print verbose output.')
     parser.add_argument('--filter', type=str, default="*.h5", help='Filter files in directory.')
     args = parser.parse_args()

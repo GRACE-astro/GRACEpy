@@ -6,7 +6,7 @@ import glob
 import re
 
 from grace_tools.timeseries_utils import load_scalar_file, merge_scalar_files
-from analysis.gw_utils import fixed_frequency_integration
+from analysis.gw_utils import fixed_frequency_integration, retarded_time
 
 # Matches both old (Psi4) and new (rPsi4) naming conventions:
 #   rPsi2m2_im_GW_1.dat  -> l=2, m=-2, im, GW_1
@@ -71,6 +71,16 @@ class grace_gw_mode:
         self.iteration = iteration
         self.time = time
         self.data = re_data + 1j * im_data
+        self.t_ret = None
+
+    def compute_t_ret(self, radius, Madm):
+        """Compute and store retarded time using the Schwarzschild tortoise coordinate.
+
+        Args:
+            radius (float): Extraction radius in code units.
+            Madm (float): ADM mass.
+        """
+        self.t_ret = retarded_time(self.time, radius, Madm)
 
     def __repr__(self):
         return f"grace_gw_mode(l={self.l}, m={self.m}, npoints={len(self.time)})"

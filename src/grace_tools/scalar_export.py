@@ -69,6 +69,12 @@ def export_scalars_hdf5(scalars, gw, outfile, name=None, detectors=None):
             for name in sorted(scalars.co_locations):
                 _write_timeseries(co_grp.create_group(name), scalars.co_locations[name])
 
+        # Performance metrics
+        if scalars.performance:
+            perf_grp = f.create_group("performance")
+            for metric in sorted(scalars.performance):
+                _write_timeseries(perf_grp.create_group(metric), scalars.performance[metric])
+
         # GW data
         for det_name in gw.available_detectors():
             det = gw[det_name]
@@ -80,6 +86,8 @@ def export_scalars_hdf5(scalars, gw, outfile, name=None, detectors=None):
                 mode_grp.create_dataset("time", data=mode.time)
                 mode_grp.create_dataset("real", data=mode.data.real)
                 mode_grp.create_dataset("imag", data=mode.data.imag)
+                if mode.t_ret is not None:
+                    mode_grp.create_dataset("t_ret", data=mode.t_ret)
 
         # Detector metadata
         if detectors is not None:
@@ -149,6 +157,7 @@ def import_scalars_hdf5(filepath):
         scalars.em_energy = None
         scalars.mass_flux = {}
         scalars.co_locations = {}
+        scalars.performance = {}
 
         # Reductions
         if "reductions" in f:
@@ -181,6 +190,13 @@ def import_scalars_hdf5(filepath):
                     f[f"co_locations/{co_name}"], co_name
                 )
 
+        # Performance metrics
+        if "performance" in f:
+            for metric in f["performance"]:
+                scalars.performance[metric] = _read_timeseries(
+                    f[f"performance/{metric}"], f"performance_{metric}"
+                )
+
         # GW data (bypass __init__ which expects dirs)
         gw = grace_gw_data.__new__(grace_gw_data)
         gw.Madm = float(Madm) if Madm is not None else None
@@ -204,6 +220,8 @@ def import_scalars_hdf5(filepath):
                         mg["real"][:],
                         mg["imag"][:],
                     )
+                    if "t_ret" in mg:
+                        mode.t_ret = mg["t_ret"][:]
                     gw_det[(l, m)] = mode
                 gw.detectors[det_name] = gw_det
 

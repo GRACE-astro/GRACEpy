@@ -99,7 +99,7 @@ class simulation:
     def _copyfile(self,srcfile,dstpath):
         pth,nm = os.path.split(srcfile)
         dstfile = os.path.join(dstpath,nm)
-        shutil.copy(srcfile,dstfile)
+        shutil.copy2(srcfile,dstfile)
         return dstfile
 
     def _init_directory_structure(self):
@@ -120,18 +120,18 @@ class simulation:
 
         self._machine.dump_config(os.path.join(cdir,"machine.yaml"))
         
-        shutil.copyfile(self._exe, os.path.join(cdir, 'grace'))
+        shutil.copy2(self._exe, os.path.join(cdir, 'grace'))
 
         _, pname = os.path.split(self._pfile)
         os.makedirs(os.path.join(cdir, 'parfile'))
-        shutil.copyfile(self._pfile, os.path.join(cdir, 'parfile', pname))
+        shutil.copy2(self._pfile, os.path.join(cdir, 'parfile', pname))
 
         os.makedirs(os.path.join(cdir, 'submission'))
-        shutil.copyfile(self._subscript, os.path.join(cdir, 'submission', "submission_script.x"))
+        shutil.copy2(self._subscript, os.path.join(cdir, 'submission', "submission_script.x"))
 
         _, ename = os.path.split(self._env)
         os.makedirs(os.path.join(cdir, 'env'))
-        shutil.copyfile(self._env, os.path.join(cdir, 'env', ename))
+        shutil.copy2(self._env, os.path.join(cdir, 'env', ename))
 
         self._info_file = os.path.join(cdir, "status.yaml")
         self._lastjob = {"parfile": pname}

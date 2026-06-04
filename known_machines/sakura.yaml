@@ -1,0 +1,11 @@
+name: "sakura"
+scheduler: "SLURM"
+max_walltime: "24:00:00"
+backend: "CPU"
+mem_per_node: 376000
+cpu_per_node: 40
+gpu_per_node: 0
+queues: ["p.sakura"]
+default_queue: ["p.sakura"]
+submission_script: "sakura.sub"
+environment_file: "sakura.sh"

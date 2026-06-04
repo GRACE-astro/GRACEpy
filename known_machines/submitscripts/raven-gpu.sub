@@ -25,7 +25,13 @@ module purge
 source @ENV_FILE@
 
 export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK}
+export OMP_PLACES=cores
 
-export UCX_TLS=^cma
+# Add clang's runtime-library dir to the path. libomp.so (pulled in by Kokkos's
+# OpenMP host backend) lives next to the other clang runtime libs, NOT in
+# -print-runtime-dir (that is compiler-rt). -print-file-name resolves the actual
+# location regardless of the per-target vs flat lib layout.
+export LD_LIBRARY_PATH=$(dirname $(clang++ -print-file-name=libomp.so)):$LD_LIBRARY_PATH
+
 
 srun ./grace --grace-parfile @PARAMETER_FILE@

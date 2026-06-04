@@ -14,8 +14,16 @@ from grace_tools.timeseries_utils import (
 REDUCTION_TYPES = {"max": "maximum", "min": "minimum", "norm2": "norm2", "integral": "integral"}
 _REDUCTION_RE = re.compile(r"^(.+)_(max|min|norm2|integral)$")
 _GW_RE = re.compile(r"^r?Psi\d+m?\d+_(re|im)_.+$")
-_MDOT_RE = re.compile(r"^Mdot_(.+)_(\w+_\d+)$")
 _CO_LOC_RE = re.compile(r"^co_(.+)_loc$")
+_PERF_RE = re.compile(r"^performance_(mzph|zcps)$")
+
+# Known flux name prefixes from GRACE diagnostics (longest first for greedy match)
+_KNOWN_FLUX_PREFIXES = sorted([
+    "Mdot_unbound_geo", "Mdot_unbound_bern", "Mdot_tot",
+    "Mdot", "Edot", "Ldot", "Phi",
+    "E_ADM", "Px_ADM", "Py_ADM", "Pz_ADM",
+    "Jx_ADM", "Jy_ADM", "Jz_ADM",
+], key=len, reverse=True)
 
 
 class grace_scalars_reader:
@@ -28,6 +36,8 @@ class grace_scalars_reader:
     - **EM energy** (E_em.dat): electromagnetic energy diagnostic
     - **Mass flux** (Mdot_{type}_{detector}.dat): per-detector mass flux
     - **Compact object locations** (co_{name}_loc.dat): tracked object positions
+    - **Performance metrics** (performance_mzph.dat, performance_zcps.dat):
+      zone-cycles per second and mega zone-cycles per hour
 
     GW files (rPsi4/Psi4) are skipped — use grace_gw_data for those.
 
@@ -46,6 +56,8 @@ class grace_scalars_reader:
             Mapping detector_name -> grace_timeseries_array keyed by flux type.
         co_locations (dict):
             Mapping CO name -> grace_timeseries with multi-column position data.
+        performance (dict):
+            Mapping metric name ('mzph', 'zcps') -> grace_timeseries.
     """
 
     def __init__(self, dirs):
@@ -65,6 +77,7 @@ class grace_scalars_reader:
         self.em_energy    = None
         self.mass_flux    = {}
         self.co_locations = {}
+        self.performance  = {}
 
         if len(dirs) == 1:
             self._load_single_dir(dirs[0])
@@ -91,14 +104,24 @@ class grace_scalars_reader:
             self.em_energy = ts
             return
 
-        # Mass flux diagnostics: Mdot_{type}_{detector}
-        match = _MDOT_RE.match(varname)
+        # Flux diagnostics: {flux_prefix}_{detector}
+        # Flux prefixes are matched longest-first to handle e.g.
+        # "Mdot_unbound_geo" before "Mdot"
+        for prefix in _KNOWN_FLUX_PREFIXES:
+            if varname.startswith(prefix + "_"):
+                detector = varname[len(prefix) + 1:]
+                if detector:
+                    if detector not in self.mass_flux:
+                        self.mass_flux[detector] = grace_timeseries_array()
+                    self.mass_flux[detector][prefix] = ts
+                    return
+                break
+
+        # Performance metrics: performance_{mzph,zcps}
+        match = _PERF_RE.match(varname)
         if match:
-            flux_type = match.group(1)
-            detector = match.group(2)
-            if detector not in self.mass_flux:
-                self.mass_flux[detector] = grace_timeseries_array()
-            self.mass_flux[detector][flux_type] = ts
+            metric = match.group(1)
+            self.performance[metric] = ts
             return
 
         # Compact object locations: co_{name}_loc
@@ -142,6 +165,9 @@ class grace_scalars_reader:
         if self.co_locations:
             names = sorted(self.co_locations)
             sections.append(f"  co_locations ({len(names)}): {', '.join(names)}")
+        if self.performance:
+            metrics = sorted(self.performance)
+            sections.append(f"  performance: {', '.join(metrics)}")
         if sections:
             return "grace_scalars_reader:\n" + "\n".join(sections)
         return "grace_scalars_reader: (empty)"

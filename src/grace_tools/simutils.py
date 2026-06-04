@@ -192,13 +192,18 @@ class grace_simulation:
         """Build the detector set from parfile config and attach data references."""
         dset = grace_detector_set.from_parfile_config(self._config)
 
-        # Attach GW mode data
+        # Attach GW mode data and compute retarded time where possible
         for det_name in self.gw.available_detectors():
             if det_name not in dset:
                 # Detector found in data but not in parfile — create without metadata
                 from grace_tools.detector_utils import grace_detector
                 dset[det_name] = grace_detector(det_name)
             dset[det_name].gw = self.gw[det_name]
+            if self._id_Madm is not None and dset[det_name].radius is not None:
+                for lm in dset[det_name].gw.available_modes():
+                    dset[det_name].gw[lm].compute_t_ret(
+                        dset[det_name].radius, self._id_Madm
+                    )
 
         # Attach mass flux data
         for det_name in self.scalars.mass_flux:

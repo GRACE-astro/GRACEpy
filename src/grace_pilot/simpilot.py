@@ -9,6 +9,18 @@ from pathlib import Path
 
 ALLOWED_MAIL_TYPE = ("NONE", "BEGIN", "END", "FAIL", "REQUEUE", "ALL", "INVALID_DEPEND", "STAGE_OUT", "TIME_LIMIT", "TIME_LIMIT_90", "TIME_LIMIT_80", "TIME_LIMIT_50", "ARRAY_TASKS")
 
+# External initial-data libraries simpilot asks about at setup. Their install
+# dirs are written into the per-user site file (site.sh), which every
+# environment file sources. HOME_KADATH in particular is read by FUKA via
+# getenv() at RUNTIME, so it must be present in the job environment or FUKA
+# initial-data reads segfault.
+EXTERNAL_LIBS = (
+    ("FUKA / Kadath", "HOME_KADATH"),
+    ("LORENE",        "HOME_LORENE"),
+    ("TwoPunctures",  "TwoPunctures_ROOT"),
+)
+SITE_FILE_PLACEHOLDER = "@SITE_FILE@"
+
 
 class simpilot:
 
@@ -144,6 +156,31 @@ class simpilot:
         os.makedirs(self._simrepo, exist_ok=True)
         self._active_sims = [f.stem for f in Path(self._simrepo).glob("*.yaml") if f.is_file()]
 
+    def _write_site_file(self, ext_libs):
+        """Write the per-user site file sourced by every environment file.
+
+        Exports the install dirs the user provided and leaves a commented
+        placeholder for the ones left blank, so they can be filled in later.
+        Returns the absolute path to the written file.
+        """
+        site_file = os.path.join(self._bdir, "site.sh")
+        lines = [
+            "#!/bin/sh",
+            "# simpilot site file: install dirs for external initial-data libraries.",
+            "# Sourced by every job's environment file. Edit to add or change paths.",
+            "# HOME_KADATH is read by FUKA at runtime, so it must be set for FUKA runs.",
+            "",
+        ]
+        for label, var in EXTERNAL_LIBS:
+            val = ext_libs.get(var, "")
+            if val:
+                lines.append(f'export {var}="{val}"   # {label}')
+            else:
+                lines.append(f'# export {var}=   # {label}')
+        with open(site_file, "w") as f:
+            f.write("\n".join(lines) + "\n")
+        return site_file
+
     def _setup_new_user(self):
         print("Setup required for simpilot.")
         os.makedirs(self._simrepo, exist_ok=True)
@@ -200,8 +237,23 @@ class simpilot:
         default_simpath = input("Please enter a default path for simulations: ").strip()
         user_defaults["simpath"] = default_simpath
 
+        # Install dirs for external initial-data libraries. Optional: a blank
+        # answer leaves a commented placeholder in the site file to edit later.
+        print("\nInstall directories for external initial-data libraries (optional).")
+        print("Leave blank to skip; you can edit them in later.")
+        ext_libs = {}
+        for label, var in EXTERNAL_LIBS:
+            ext_libs[var] = input(f"  {label} [{var}]: ").strip()
+        user_defaults["external_libs"] = ext_libs
+
         with open(os.path.join(self._bdir, "user_settings.yaml"), "w") as f:
             yaml.safe_dump(user_defaults, f)
+
+        site_file = self._write_site_file(ext_libs)
+        if any(ext_libs.values()):
+            print(f"External library paths written to {site_file}")
+        else:
+            print(f"No external library paths set. Edit {site_file} to add them later.")
 
         # Copy submit script templates
         subpath = os.path.join(self._bdir, "submitscripts")
@@ -212,14 +264,16 @@ class simpilot:
                 if f.is_file():
                     shutil.copyfile(f, os.path.join(subpath, f.name))
 
-        # Copy environment files
+        # Copy environment files, substituting the absolute path to the site
+        # file so each job sources the user's external-library install dirs.
         envpath = os.path.join(self._bdir, "env_files")
         os.makedirs(envpath, exist_ok=True)
         efiles_path = os.path.join(mfiles_path, "env_files")
         if os.path.isdir(efiles_path):
             for f in Path(efiles_path).iterdir():
                 if f.is_file():
-                    shutil.copyfile(f, os.path.join(envpath, f.name))
+                    content = f.read_text().replace(SITE_FILE_PLACEHOLDER, site_file)
+                    Path(os.path.join(envpath, f.name)).write_text(content)
 
         print("Done with initial configuration.")
         self._parse_config()
