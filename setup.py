@@ -1,10 +1,10 @@
 from setuptools import setup, find_packages
 
 setup(
-    name="GACEpy",  # Name of the package
+    name="GRACEpy",  # Name of the package
     version="0.1",  # Version of the package
     author="Carlo Musolino",  # Author of the package
-    author_email="musolino@itp.uni-frankfurt.de",  # Author's email
+    author_email="carlo.musolino@aei.mpg.de",  # Author's email
     description="GRACEpy provide utilities to ease the submission of GRACE simulations and the analysis of their results.",  # Short description
     long_description=open('README.md').read(),  # Long description from README.md
     long_description_content_type='text/markdown',  # Format of the long description
@@ -16,7 +16,7 @@ setup(
         "License :: OSI Approved :: GPLv3 License",
         "Operating System :: OS Independent",
     ],
-    python_requires='>=3.6',  # Python version requirement
+    python_requires='>=3.8',  # argparse subparsers `required=`, f-strings, etc. need >=3.7; 3.8 is the modern floor
     install_requires=[  # List of dependencies
         "requests",
         "numpy",
