@@ -87,7 +87,7 @@ class simpilot:
             if not os.path.isdir(build_dir):
                 raise ValueError(f"Invalid build directory specified: {build_dir}")
             executable = os.path.join(build_dir, "grace")
-            config_summary = os.path.join(build_dir, "config_summary")
+            config_summary = os.path.join(build_dir, "grace_config_summary.txt")
         if executable is None or (not os.path.isfile(executable)):
             raise ValueError("Invalid executable specified when creating a simulation")
         if parameter_file is None or (not os.path.isfile(parameter_file)):
