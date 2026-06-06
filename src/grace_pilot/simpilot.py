@@ -70,7 +70,7 @@ class simpilot:
             raise ValueError(f"No configuration file found for machine '{machine_name}'")
         return machine(machine_file)
 
-    def create_new_simulation(self, simname, simpath=None, _machine=None, executable=None, parameter_file=None, env_file=None):
+    def create_new_simulation(self, simname, simpath=None, _machine=None, executable=None, parameter_file=None, env_file=None, build_dir=None):
 
         if simpath is None:
             simpath = os.path.join(self._user_settings["simpath"], simname)
@@ -78,7 +78,17 @@ class simpilot:
             _machine = self._resolve_machine(self._default_machine)
         elif isinstance(_machine, str):
             _machine = self._resolve_machine(_machine)
-        if executable is None:
+
+        # A build directory supplies both the executable and the build's
+        # config summary; an explicit executable is the alternative and carries
+        # no summary. The CLI enforces that exactly one is given.
+        config_summary = None
+        if build_dir is not None:
+            if not os.path.isdir(build_dir):
+                raise ValueError(f"Invalid build directory specified: {build_dir}")
+            executable = os.path.join(build_dir, "grace")
+            config_summary = os.path.join(build_dir, "config_summary")
+        if executable is None or (not os.path.isfile(executable)):
             raise ValueError("Invalid executable specified when creating a simulation")
         if parameter_file is None or (not os.path.isfile(parameter_file)):
             raise ValueError("Invalid parameter file specified when creating a simulation")
@@ -93,7 +103,8 @@ class simpilot:
             simname, simpath, _machine,
             submitscript,
             executable, parameter_file,
-            env=envfile
+            env=envfile,
+            config_summary=config_summary,
         )
         # Write a descriptor of this simulation
         sim_descriptor = {

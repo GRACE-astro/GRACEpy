@@ -24,7 +24,7 @@ def fill_submit_template(template_file,output_file,replacements):
 
 class simulation:
 
-    def __init__(self, name, simdir, machine=None, submitscript=None, exe=None, parfile=None, env=None):
+    def __init__(self, name, simdir, machine=None, submitscript=None, exe=None, parfile=None, env=None, config_summary=None):
         self._name = name
         self._dir = simdir
         self._cdir = os.path.join(self._dir, "config")
@@ -33,6 +33,10 @@ class simulation:
         self._pfile = parfile
         self._subscript = submitscript
         self._env = env
+        # Optional build provenance file (e.g. CMake config summary). Copied
+        # into config/ at creation so it can be recovered later (e.g. when
+        # building a regression artifact).
+        self._config_summary = config_summary
 
         if not os.path.isdir(simdir):
             self._init_directory_structure()
@@ -133,6 +137,15 @@ class simulation:
         os.makedirs(os.path.join(cdir, 'env'))
         shutil.copy2(self._env, os.path.join(cdir, 'env', ename))
 
+        # Build provenance summary (optional): copy into config/ if provided.
+        if self._config_summary is not None:
+            if os.path.isfile(self._config_summary):
+                shutil.copy2(self._config_summary, os.path.join(cdir, 'config_summary'))
+            else:
+                print(f"Warning: config summary '{self._config_summary}' not found; "
+                      "creating simulation without build provenance.")
+                self._config_summary = None
+
         self._info_file = os.path.join(cdir, "status.yaml")
         self._lastjob = {"parfile": pname}
 
@@ -144,6 +157,9 @@ class simulation:
         self._machine = machine(os.path.join(cdir, 'machine.yaml'))
 
         self._exe = os.path.join(cdir, 'grace')
+
+        summary_path = os.path.join(cdir, 'config_summary')
+        self._config_summary = summary_path if os.path.isfile(summary_path) else None
 
         self._info_file = os.path.join(cdir, "status.yaml")
         with open(self._info_file, "r") as f:

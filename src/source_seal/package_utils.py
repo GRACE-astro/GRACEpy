@@ -59,18 +59,33 @@ def get_git_info(source_dir):
 
     return commit_hash, unstaged_changes
 
+def seal_source_tree_into_group(group, source_dir, exclude_patterns):
+    """
+    Seal a source tree into an already-open HDF5 group (or file).
+
+    Writes the Git metadata as attributes on ``group`` and the source files
+    as datasets under it. Use this to nest a sealed source tree inside a larger
+    archive; ``seal_source_tree`` is the standalone path-based wrapper.
+
+    Returns:
+        tuple[str, str]: ``(commit_hash, unstaged_changes)``.
+    """
+    commit_hash, unstaged_changes = get_git_info(source_dir)
+
+    # Store Git metadata
+    group.attrs['commit_hash'] = commit_hash
+    group.attrs['unstaged_changes'] = unstaged_changes
+
+    # Add source files
+    add_directory_to_hdf5(group, source_dir, exclude_patterns)
+
+    return commit_hash, unstaged_changes
+
 def seal_source_tree(source_dir, output_file, exclude_patterns):
     """
     Package a source tree into an HDF5 file with exclusion patterns and Git metadata.
     """
-    commit_hash, unstaged_changes = get_git_info(source_dir)
-    
     with h5py.File(output_file, 'w') as hdf5_file:
-        # Store Git metadata
-        hdf5_file.attrs['commit_hash'] = commit_hash
-        hdf5_file.attrs['unstaged_changes'] = unstaged_changes
-
-        # Add source files
-        add_directory_to_hdf5(hdf5_file, source_dir, exclude_patterns)
+        seal_source_tree_into_group(hdf5_file, source_dir, exclude_patterns)
         
 
