@@ -36,7 +36,9 @@ setup(
             "grace_info=scripts.grace_info:main",
             "simpilot=scripts.simpilot:main",
             "export_scalars=scripts.export_scalars:main",
-            "export_uniform=scripts.export_uniform:main"
+            "export_uniform=scripts.export_uniform:main",
+            "make_movie=scripts.make_movie:main",
+            "grace_regression=scripts.grace_regression:main"
         ],
     },
 )

@@ -22,6 +22,9 @@ def main():
                         help="'auto' 'temporal' 'spatial' 'spherical' or 'tracer' depending on the kind of output processed. Tracer files use Polyvertex topology with /Position as geometry; ParaView's 'Temporal Particles To Pathlines' filter on the id field reconstructs trajectories.")
     parser.add_argument('--verbose', action='store_true', default=False, help='Print verbose output.')
     parser.add_argument('--filter', type=str, default="*.h5", help='Filter files in directory.')
+    parser.add_argument('--workers', type=int, default=8,
+                        help='Threads for parallel per-file HDF5 metadata reads '
+                             '(default: 8; set 1 to disable).')
     args = parser.parse_args()
     outfile = args.output_file
     if not outfile.endswith(".xmf"):
@@ -30,7 +33,8 @@ def main():
         print(f"Generating XMF descriptor for {args.input_dir}")
         print(f"Output file: {outfile}")
 
-    xmf.write_xmf_file(outfile,args.input_dir,args.mode,verbose=args.verbose,filter=args.filter)
+    xmf.write_xmf_file(outfile,args.input_dir,args.mode,verbose=args.verbose,
+                       filter=args.filter,n_workers=args.workers)
     
 if __name__=="__main__":
     main()

@@ -18,7 +18,12 @@ def main():
     create_parser.add_argument("--simname", required=True, help="Name of the simulation")
     create_parser.add_argument("--simpath", default=None, help="Path for the simulation")
     create_parser.add_argument("--machine", default=None, help="Machine to use")
-    create_parser.add_argument("--executable", required=True, help="Path to executable")
+    # Either a bare executable or a build directory (which also supplies the
+    # build's config_summary for provenance). Exactly one is required.
+    exe_group = create_parser.add_mutually_exclusive_group(required=True)
+    exe_group.add_argument("--executable", default=None, help="Path to executable")
+    exe_group.add_argument("--build-dir", dest="build_dir", default=None,
+                           help="Path to build directory (provides the executable and config_summary)")
     create_parser.add_argument("--parameter_file", required=True, help="Parameter file path")
     create_parser.add_argument("--env_file", default=None, help="Environment file (overrides machine default)")
 
@@ -51,7 +56,8 @@ def main():
             _machine=args.machine,
             executable=args.executable,
             parameter_file=args.parameter_file,
-            env_file=args.env_file
+            env_file=args.env_file,
+            build_dir=args.build_dir
         )
     elif args.command == "submit":
         sp.submit_simulation(

@@ -33,76 +33,93 @@ def export_scalars_hdf5(scalars, gw, outfile, name=None, detectors=None):
         detectors (grace_detector_set, optional): Detector metadata to store.
     """
     with h5py.File(outfile, "w") as f:
-        # File-level metadata
-        if name is not None:
-            f.attrs["name"] = name
-        if gw.Madm is not None:
-            f.attrs["Madm"] = gw.Madm
-        if gw.omega0 is not None:
-            f.attrs["omega0"] = gw.omega0
-        # Reductions
-        for red_name in ("maximum", "minimum", "norm2", "integral"):
-            container = getattr(scalars, red_name)
-            keys = list(container.available_vars())
-            if not keys:
-                continue
-            grp = f.require_group(f"reductions/{red_name}")
-            for var in sorted(keys):
-                _write_timeseries(grp.create_group(var), container[var])
+        export_scalars_to_group(f, scalars, gw, name=name, detectors=detectors)
 
-        # EM energy
-        if scalars.em_energy is not None:
-            _write_timeseries(f.create_group("em_energy"), scalars.em_energy)
 
-        # Mass flux
-        if scalars.mass_flux:
-            mf_grp = f.create_group("mass_flux")
-            for det in sorted(scalars.mass_flux):
-                det_grp = mf_grp.create_group(det)
-                container = scalars.mass_flux[det]
-                for ftype in sorted(container.available_vars()):
-                    _write_timeseries(det_grp.create_group(ftype), container[ftype])
+def export_scalars_to_group(f, scalars, gw, name=None, detectors=None):
+    """Dump all scalar and GW data into an already-open HDF5 group (or file).
 
-        # Compact object locations
-        if scalars.co_locations:
-            co_grp = f.create_group("co_locations")
-            for name in sorted(scalars.co_locations):
-                _write_timeseries(co_grp.create_group(name), scalars.co_locations[name])
+    This is the group-accepting variant of :func:`export_scalars_hdf5`. Use it
+    to nest the results inside a larger archive (e.g. a regression artifact);
+    ``f`` may be an :class:`h5py.File` or an :class:`h5py.Group`.
 
-        # Performance metrics
-        if scalars.performance:
-            perf_grp = f.create_group("performance")
-            for metric in sorted(scalars.performance):
-                _write_timeseries(perf_grp.create_group(metric), scalars.performance[metric])
+    Args:
+        f (h5py.Group): Open HDF5 group/file to write into.
+        scalars (grace_scalars_reader): Scalar data reader.
+        gw (grace_gw_data): Gravitational wave data reader.
+        name (str, optional): Simulation name (stored as a group attribute).
+        detectors (grace_detector_set, optional): Detector metadata to store.
+    """
+    # File-level metadata
+    if name is not None:
+        f.attrs["name"] = name
+    if gw.Madm is not None:
+        f.attrs["Madm"] = gw.Madm
+    if gw.omega0 is not None:
+        f.attrs["omega0"] = gw.omega0
+    # Reductions
+    for red_name in ("maximum", "minimum", "norm2", "integral"):
+        container = getattr(scalars, red_name)
+        keys = list(container.available_vars())
+        if not keys:
+            continue
+        grp = f.require_group(f"reductions/{red_name}")
+        for var in sorted(keys):
+            _write_timeseries(grp.create_group(var), container[var])
 
-        # GW data
-        for det_name in gw.available_detectors():
-            det = gw[det_name]
-            det_grp = f.require_group(f"gw/{det_name}")
-            for l, m in det.available_modes():
-                mode = det[(l, m)]
-                mode_grp = det_grp.create_group(f"l{l}_m{m}")
-                mode_grp.create_dataset("iteration", data=mode.iteration)
-                mode_grp.create_dataset("time", data=mode.time)
-                mode_grp.create_dataset("real", data=mode.data.real)
-                mode_grp.create_dataset("imag", data=mode.data.imag)
-                if mode.t_ret is not None:
-                    mode_grp.create_dataset("t_ret", data=mode.t_ret)
+    # EM energy
+    if scalars.em_energy is not None:
+        _write_timeseries(f.create_group("em_energy"), scalars.em_energy)
 
-        # Detector metadata
-        if detectors is not None:
-            det_grp = f.require_group("detectors")
-            for det_name in detectors.available_detectors():
-                det = detectors[det_name]
-                dg = det_grp.create_group(det_name)
-                if det.radius is not None:
-                    dg.attrs["radius"] = det.radius
-                if det.center is not None:
-                    dg.attrs["center"] = np.array(det.center)
-                if det.resolution is not None:
-                    dg.attrs["resolution"] = det.resolution
-                if det.sampling_policy is not None:
-                    dg.attrs["sampling_policy"] = det.sampling_policy
+    # Mass flux
+    if scalars.mass_flux:
+        mf_grp = f.create_group("mass_flux")
+        for det in sorted(scalars.mass_flux):
+            det_grp = mf_grp.create_group(det)
+            container = scalars.mass_flux[det]
+            for ftype in sorted(container.available_vars()):
+                _write_timeseries(det_grp.create_group(ftype), container[ftype])
+
+    # Compact object locations
+    if scalars.co_locations:
+        co_grp = f.create_group("co_locations")
+        for name in sorted(scalars.co_locations):
+            _write_timeseries(co_grp.create_group(name), scalars.co_locations[name])
+
+    # Performance metrics
+    if scalars.performance:
+        perf_grp = f.create_group("performance")
+        for metric in sorted(scalars.performance):
+            _write_timeseries(perf_grp.create_group(metric), scalars.performance[metric])
+
+    # GW data
+    for det_name in gw.available_detectors():
+        det = gw[det_name]
+        det_grp = f.require_group(f"gw/{det_name}")
+        for l, m in det.available_modes():
+            mode = det[(l, m)]
+            mode_grp = det_grp.create_group(f"l{l}_m{m}")
+            mode_grp.create_dataset("iteration", data=mode.iteration)
+            mode_grp.create_dataset("time", data=mode.time)
+            mode_grp.create_dataset("real", data=mode.data.real)
+            mode_grp.create_dataset("imag", data=mode.data.imag)
+            if mode.t_ret is not None:
+                mode_grp.create_dataset("t_ret", data=mode.t_ret)
+
+    # Detector metadata
+    if detectors is not None:
+        det_grp = f.require_group("detectors")
+        for det_name in detectors.available_detectors():
+            det = detectors[det_name]
+            dg = det_grp.create_group(det_name)
+            if det.radius is not None:
+                dg.attrs["radius"] = det.radius
+            if det.center is not None:
+                dg.attrs["center"] = np.array(det.center)
+            if det.resolution is not None:
+                dg.attrs["resolution"] = det.resolution
+            if det.sampling_policy is not None:
+                dg.attrs["sampling_policy"] = det.sampling_policy
 
 
 def _read_timeseries(group, name):
@@ -141,118 +158,134 @@ def import_scalars_hdf5(filepath):
         dict: Keys ``"scalars"``, ``"gw"``, ``"detectors"``, ``"name"``.
     """
     with h5py.File(filepath, "r") as f:
-        # File-level metadata
-        sim_name = f.attrs.get("name", "grace")
-        if isinstance(sim_name, bytes):
-            sim_name = sim_name.decode()
-        Madm = f.attrs.get("Madm")
-        omega0 = f.attrs.get("omega0")
+        return import_scalars_from_group(f)
 
-        # Reconstruct scalars reader (bypass __init__ which expects dirs)
-        scalars = grace_scalars_reader.__new__(grace_scalars_reader)
-        scalars.maximum = grace_timeseries_array()
-        scalars.minimum = grace_timeseries_array()
-        scalars.norm2 = grace_timeseries_array()
-        scalars.integral = grace_timeseries_array()
-        scalars.em_energy = None
-        scalars.mass_flux = {}
-        scalars.co_locations = {}
-        scalars.performance = {}
 
-        # Reductions
-        if "reductions" in f:
-            for red_name in ("maximum", "minimum", "norm2", "integral"):
-                if red_name not in f["reductions"]:
+def import_scalars_from_group(f):
+    """Reconstruct scalar and GW data from an already-open HDF5 group (or file).
+
+    This is the group-accepting variant of :func:`import_scalars_hdf5`. Use it
+    to read results nested inside a larger archive (e.g. a regression artifact);
+    ``f`` may be an :class:`h5py.File` or an :class:`h5py.Group`.
+
+    Args:
+        f (h5py.Group): Open HDF5 group/file to read from.
+
+    Returns:
+        dict: Keys ``"scalars"``, ``"gw"``, ``"detectors"``, ``"name"``.
+    """
+    # File-level metadata
+    sim_name = f.attrs.get("name", "grace")
+    if isinstance(sim_name, bytes):
+        sim_name = sim_name.decode()
+    Madm = f.attrs.get("Madm")
+    omega0 = f.attrs.get("omega0")
+
+    # Reconstruct scalars reader (bypass __init__ which expects dirs)
+    scalars = grace_scalars_reader.__new__(grace_scalars_reader)
+    scalars.maximum = grace_timeseries_array()
+    scalars.minimum = grace_timeseries_array()
+    scalars.norm2 = grace_timeseries_array()
+    scalars.integral = grace_timeseries_array()
+    scalars.em_energy = None
+    scalars.mass_flux = {}
+    scalars.co_locations = {}
+    scalars.performance = {}
+
+    # Reductions
+    if "reductions" in f:
+        for red_name in ("maximum", "minimum", "norm2", "integral"):
+            if red_name not in f["reductions"]:
+                continue
+            container = getattr(scalars, red_name)
+            for var in f[f"reductions/{red_name}"]:
+                container[var] = _read_timeseries(
+                    f[f"reductions/{red_name}/{var}"], var
+                )
+
+    # EM energy
+    if "em_energy" in f:
+        scalars.em_energy = _read_timeseries(f["em_energy"], "E_em")
+
+    # Mass flux
+    if "mass_flux" in f:
+        for det_name in f["mass_flux"]:
+            scalars.mass_flux[det_name] = grace_timeseries_array()
+            for ftype in f[f"mass_flux/{det_name}"]:
+                scalars.mass_flux[det_name][ftype] = _read_timeseries(
+                    f[f"mass_flux/{det_name}/{ftype}"], ftype
+                )
+
+    # CO locations
+    if "co_locations" in f:
+        for co_name in f["co_locations"]:
+            scalars.co_locations[co_name] = _read_timeseries(
+                f[f"co_locations/{co_name}"], co_name
+            )
+
+    # Performance metrics
+    if "performance" in f:
+        for metric in f["performance"]:
+            scalars.performance[metric] = _read_timeseries(
+                f[f"performance/{metric}"], f"performance_{metric}"
+            )
+
+    # GW data (bypass __init__ which expects dirs)
+    gw = grace_gw_data.__new__(grace_gw_data)
+    gw.Madm = float(Madm) if Madm is not None else None
+    gw.omega0 = float(omega0) if omega0 is not None else None
+    gw.detectors = {}
+
+    if "gw" in f:
+        for det_name in f["gw"]:
+            gw_det = grace_gw_detector(det_name)
+            for mode_key in f[f"gw/{det_name}"]:
+                match = _MODE_RE.match(mode_key)
+                if not match:
                     continue
-                container = getattr(scalars, red_name)
-                for var in f[f"reductions/{red_name}"]:
-                    container[var] = _read_timeseries(
-                        f[f"reductions/{red_name}/{var}"], var
-                    )
-
-        # EM energy
-        if "em_energy" in f:
-            scalars.em_energy = _read_timeseries(f["em_energy"], "E_em")
-
-        # Mass flux
-        if "mass_flux" in f:
-            for det_name in f["mass_flux"]:
-                scalars.mass_flux[det_name] = grace_timeseries_array()
-                for ftype in f[f"mass_flux/{det_name}"]:
-                    scalars.mass_flux[det_name][ftype] = _read_timeseries(
-                        f[f"mass_flux/{det_name}/{ftype}"], ftype
-                    )
-
-        # CO locations
-        if "co_locations" in f:
-            for co_name in f["co_locations"]:
-                scalars.co_locations[co_name] = _read_timeseries(
-                    f[f"co_locations/{co_name}"], co_name
+                l = int(match.group(1))
+                m = int(match.group(2))
+                mg = f[f"gw/{det_name}/{mode_key}"]
+                mode = grace_gw_mode(
+                    l, m,
+                    mg["iteration"][:],
+                    mg["time"][:],
+                    mg["real"][:],
+                    mg["imag"][:],
                 )
+                if "t_ret" in mg:
+                    mode.t_ret = mg["t_ret"][:]
+                gw_det[(l, m)] = mode
+            gw.detectors[det_name] = gw_det
 
-        # Performance metrics
-        if "performance" in f:
-            for metric in f["performance"]:
-                scalars.performance[metric] = _read_timeseries(
-                    f[f"performance/{metric}"], f"performance_{metric}"
-                )
+    # Detector metadata
+    dset = grace_detector_set()
+    if "detectors" in f:
+        for det_name in f["detectors"]:
+            dg = f[f"detectors/{det_name}"]
+            center = tuple(dg.attrs["center"]) if "center" in dg.attrs else None
+            sp = dg.attrs.get("sampling_policy")
+            if isinstance(sp, bytes):
+                sp = sp.decode()
+            det = grace_detector(
+                name=det_name,
+                radius=dg.attrs.get("radius"),
+                center=center,
+                resolution=dg.attrs.get("resolution"),
+                sampling_policy=sp,
+            )
+            dset[det_name] = det
 
-        # GW data (bypass __init__ which expects dirs)
-        gw = grace_gw_data.__new__(grace_gw_data)
-        gw.Madm = float(Madm) if Madm is not None else None
-        gw.omega0 = float(omega0) if omega0 is not None else None
-        gw.detectors = {}
+    # Attach GW and mass flux data to detectors
+    for det_name in gw.available_detectors():
+        if det_name not in dset:
+            dset[det_name] = grace_detector(det_name)
+        dset[det_name].gw = gw[det_name]
 
-        if "gw" in f:
-            for det_name in f["gw"]:
-                gw_det = grace_gw_detector(det_name)
-                for mode_key in f[f"gw/{det_name}"]:
-                    match = _MODE_RE.match(mode_key)
-                    if not match:
-                        continue
-                    l = int(match.group(1))
-                    m = int(match.group(2))
-                    mg = f[f"gw/{det_name}/{mode_key}"]
-                    mode = grace_gw_mode(
-                        l, m,
-                        mg["iteration"][:],
-                        mg["time"][:],
-                        mg["real"][:],
-                        mg["imag"][:],
-                    )
-                    if "t_ret" in mg:
-                        mode.t_ret = mg["t_ret"][:]
-                    gw_det[(l, m)] = mode
-                gw.detectors[det_name] = gw_det
-
-        # Detector metadata
-        dset = grace_detector_set()
-        if "detectors" in f:
-            for det_name in f["detectors"]:
-                dg = f[f"detectors/{det_name}"]
-                center = tuple(dg.attrs["center"]) if "center" in dg.attrs else None
-                sp = dg.attrs.get("sampling_policy")
-                if isinstance(sp, bytes):
-                    sp = sp.decode()
-                det = grace_detector(
-                    name=det_name,
-                    radius=dg.attrs.get("radius"),
-                    center=center,
-                    resolution=dg.attrs.get("resolution"),
-                    sampling_policy=sp,
-                )
-                dset[det_name] = det
-
-        # Attach GW and mass flux data to detectors
-        for det_name in gw.available_detectors():
-            if det_name not in dset:
-                dset[det_name] = grace_detector(det_name)
-            dset[det_name].gw = gw[det_name]
-
-        for det_name in scalars.mass_flux:
-            if det_name not in dset:
-                dset[det_name] = grace_detector(det_name)
-            dset[det_name].mass_flux = scalars.mass_flux[det_name]
+    for det_name in scalars.mass_flux:
+        if det_name not in dset:
+            dset[det_name] = grace_detector(det_name)
+        dset[det_name].mass_flux = scalars.mass_flux[det_name]
 
     return {
         "name": sim_name,

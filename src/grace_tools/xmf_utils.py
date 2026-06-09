@@ -3,7 +3,21 @@ import os
 import glob
 import h5py
 import re
-from collections import defaultdict
+from collections import defaultdict, OrderedDict
+from concurrent.futures import ThreadPoolExecutor
+
+
+def _pmap(func, args_list, n_workers):
+    """Map ``func`` over ``args_list``, in parallel threads when worthwhile.
+
+    The per-file work is one HDF5 open + metadata read — I/O-latency bound and
+    GIL-releasing, so threads parallelize it well.  Results preserve input
+    order (``ThreadPoolExecutor.map`` guarantees this).
+    """
+    if n_workers and n_workers > 1 and len(args_list) > 1:
+        with ThreadPoolExecutor(max_workers=n_workers) as ex:
+            return list(ex.map(func, args_list))
+    return [func(a) for a in args_list]
 
 
 # ---------------- Helper to group planes by iteration ----------------
@@ -567,7 +581,8 @@ def construct_tracer_grid(f, name="tracers"):
     }
 
 
-def write_xmf_file(outfile, bdir="./",mode="volume", verbose: bool = False, filter=None):
+def write_xmf_file(outfile, bdir="./",mode="volume", verbose: bool = False,
+                   filter=None, n_workers=8):
     """
     Writes an XMF (eXtensible Model Format) file that references a collection of HDF5 files.
     Parameters:
@@ -577,6 +592,10 @@ def write_xmf_file(outfile, bdir="./",mode="volume", verbose: bool = False, filt
         collected (e.g. for merging output across restart segments). Defaults to "./".
     iterations (list or int, optional): A list of iteration numbers or a single iteration number to include in the XMF file.
                                         If None, all HDF5 files in the base directory are included. Defaults to None.
+    n_workers (int): Number of threads used to read per-file HDF5 metadata in
+        parallel. The per-file reads dominate the runtime for large file
+        counts and are I/O-latency bound, so threading them speeds up
+        descriptor creation substantially. Set to 1 to disable. Defaults to 8.
     Returns:
     None
     """
@@ -616,11 +635,9 @@ def write_xmf_file(outfile, bdir="./",mode="volume", verbose: bool = False, filt
         print("Use spatial collection:", use_spatial_collection)
 
     if mode == "tracer" or (mode == "auto" and is_tracer_run):
-        grids = []
-        for it in iterations:
-            if 'tracer' not in kinds_per_iter[it]:
-                continue
-            grids.append(construct_tracer_grid(grouped[it]['tracer']))
+        files = [grouped[it]['tracer'] for it in iterations
+                 if 'tracer' in kinds_per_iter[it]]
+        grids = _pmap(construct_tracer_grid, files, n_workers)
         with open(outfile, "w") as fout:
             fout.write('''<?xml version="1.0" encoding="utf-8"?>
     <Xdmf xmlns:xi="http://www.w3.org/2001/XInclude" Version="3.0">
@@ -630,29 +647,33 @@ def write_xmf_file(outfile, bdir="./",mode="volume", verbose: bool = False, filt
             fout.write('''</Domain>
     </Xdmf>\n''')
     elif mode == "temporal" or (mode=="auto" and not use_spatial_collection):
-        grids = []
+        files = []
         for it in iterations:
             if len(grouped[it].keys()) > 1:
                 raise ValueError("Forced mode temporal but multiple outputs present.")
-            key = list(grouped[it].keys())[0]
-            grids.append(construct_grid(grouped[it][key]))
+            files.append(grouped[it][list(grouped[it].keys())[0]])
+        grids = _pmap(construct_grid, files, n_workers)
         with open(outfile,"w") as fout:
             fout.write(write_xmf_file_header({"name":"collection", "grids":grids}))
     elif mode == "spatial" or (mode=="auto" and use_spatial_collection):
+        # flatten (iteration, kind, file) so all reads run in one parallel pass,
+        # then regroup by iteration preserving order.
+        flat = [(it, k, grouped[it][k])
+                for it in iterations for k in grouped[it].keys()]
+        built = _pmap(lambda t: construct_grid(t[2], t[1]), flat, n_workers)
+        by_it = OrderedDict((it, []) for it in iterations)
+        for (it, _k, _f), g in zip(flat, built):
+            by_it[it].append(g)
         colls = []
         for it in iterations:
-            grids = []
-            for k in grouped[it].keys():
-                grids.append(construct_grid(grouped[it][k], k))
+            grids = by_it[it]
             time = grids[-1]['time']
             colls.append({'iteration': it, 'time': time, 'grids': grids})
         with open(outfile,"w") as fout:
             fout.write(write_xmf_file_header_spatial_collection({"name":"collection", "collections":colls}))
     elif mode == "spherical":
-        grids = []
-        for it in iterations:
-            key = list(grouped[it].keys())[0]
-            grids.append(construct_spherical_grid(grouped[it][key]))
+        files = [grouped[it][list(grouped[it].keys())[0]] for it in iterations]
+        grids = _pmap(construct_spherical_grid, files, n_workers)
         with open(outfile,"w") as fout:
             fout.write(write_xmf_file_header({"name":"collection", "grids":grids}, True))
     return True
